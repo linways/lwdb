@@ -1,6 +1,6 @@
 ---
 name: lwdb
-description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, run read-only queries, and persist parametrized SQL templates. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through the existing dbconfs/*.txt files so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, or look up history across the V3/V4/local MySQL servers.
+description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, run read-only queries, persist parametrized SQL templates, and manage DB connection entries. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through lwdb's own SQLite connection store (or legacy dbconfs/*.txt files) so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, add/edit/test a connection, or look up history across the V3/V4/local MySQL servers.
 ---
 
 # lwdb — Linways DB CLI for AI agents
@@ -10,7 +10,7 @@ description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, r
 **Every command:**
 
 - Outputs JSON when `stdout` is not a TTY (so `lwdb cmd | jq` and agent harnesses get parseable output). Force with `--json`; force pretty with `> /dev/tty` redirection.
-- Reads connection definitions from `dbconfs/*.txt` (host, port, user, password). You never see credentials in the chat.
+- Reads connection definitions from lwdb's own SQLite store (`data/lwdb.sqlite`). Legacy `dbconfs/*.txt` files are also supported. You never see credentials in the chat.
 - Is **read-only by default**. `SELECT / SHOW / DESCRIBE / EXPLAIN / WITH / USE` are allowed. Writes (INSERT / UPDATE / DELETE / DDL) need a human-set master switch **plus** a per-call `--yes` confirmation — see "Writes" below.
 - Has a typed `error.code` and a non-zero exit code on failure.
 - Will not prompt for missing arguments — missing flags are errors, not hangs.
@@ -31,15 +31,9 @@ node /path/to/lwdb/install.mjs install
 
 The repo path is whatever directory contains the cloned `lwdb` source. If you don't know where it lives, ask the user once. After the script exits successfully, `lwdb` is on PATH and the skill is freshly mirrored — your *next* command works.
 
-**Verify with `lwdb doctor`** (same as `node install.mjs doctor`). Eight checks: Node version, `node_modules`, `lwdb` on PATH, skill snapshot, Claude skill symlink, dbconfs directory resolved, connections configured, and a live `lwdb servers` load. If any check fails, surface the output verbatim — do not try to repair.
+**Verify with `lwdb doctor`** (same as `node install.mjs doctor`). Eight checks: Node version, `node_modules`, `lwdb` on PATH, skill snapshot, Claude skill symlink, SQLite store accessible, connections configured, and a live `lwdb servers` load. If any check fails, surface the output verbatim — do not try to repair.
 
-If `dbconfs directory` shows `not set`, the user needs to point lwdb at their existing connection configs:
-
-```bash
-export LW_DB_CONFS_DIR=/var/www/html/linways/professional/dbconfs
-```
-
-(or add `lwDb.dbConfsDir` to the repo's `package.json`).
+If `connections configured` shows `0`, no connections have been added yet. Add one with `lwdb conn-add` or import from a JSON file with `lwdb import`. If migrating from legacy `dbconfs/*.txt` files, run `node tools/dbconfs-to-json.mjs <dir>` then `lwdb import data/connections.import.json`.
 
 **Update — pull latest + reinstall + refresh skill:**
 
@@ -238,6 +232,102 @@ The `--merge` flag preserves existing rows and only adds backup rows whose IDs a
 
 ---
 
+## Connections
+
+lwdb stores connection entries in its own SQLite database (`data/lwdb.sqlite`, gitignored alongside snippets and history). Connection management is **local configuration** and is **not** behind the `agentWrites` DB-write gate — that gate only governs INSERT/UPDATE/DELETE/DDL executed against MySQL via `query`/`run`. Agents may freely add, edit, and test connections without any master switch or `--yes` confirmation.
+
+### List connections
+
+```bash
+lwdb servers --json        # preferred alias
+lwdb connections --json    # same output
+```
+
+Returns an array of `{ id, label, kind, host, port, user }` — no passwords.
+
+### Add a connection
+
+```bash
+lwdb conn-add \
+  --label="V4 Server 84" \
+  --host=192.168.1.84 \
+  --user=root \
+  [--port=3306] \
+  [--password=secret] \
+  [--color=#4f9eda] \
+  [--group="V4 servers"] \
+  [--notes="Primary V4 production"] \
+  [--local]
+```
+
+`kind` auto-derives from `host`: `localhost` → `local`; everything else (including `127.0.0.1`) → `remote`. Pass `--local` to override and force `kind: local`.
+
+### Edit a connection
+
+```bash
+lwdb conn-edit <id> \
+  [--label=..] [--host=..] [--port=..] [--user=..] [--password=..] \
+  [--color=..] [--group=..] [--notes=..] \
+  [--local|--remote]
+```
+
+Only the flags you supply are changed. Omitting `--password` keeps the existing password. `--local` / `--remote` explicitly sets `kind`.
+
+### Delete a connection
+
+```bash
+lwdb conn-rm <id> --yes
+```
+
+Requires `--yes` to prevent accidental deletion. Does not affect query history or snippets.
+
+### Test a connection
+
+```bash
+lwdb conn-test <id>                              # test a saved connection by id
+lwdb conn-test --host=.. --user=.. [--port=..] [--password=..]   # ad-hoc probe
+```
+
+Probes TCP + MySQL auth and reports connect latency. Use this before saving a new entry to verify credentials are correct.
+
+### Bulk import / export (universal format)
+
+```bash
+# Import: upserts by id (idempotent — safe to re-run)
+lwdb import data/connections.import.json
+
+# Export: dumps all connections including passwords — treat as a local backup file
+lwdb export                          # prints JSON to stdout
+lwdb export data/lwdb-conns.json     # writes to file
+```
+
+Universal format:
+
+```json
+{
+  "version": 1,
+  "connections": [
+    {
+      "id": "v4-84",
+      "label": "V4 Server 84",
+      "host": "192.168.1.84",
+      "port": 3306,
+      "user": "root",
+      "password": "secret",
+      "color": "#4f9eda",
+      "group": "V4 servers",
+      "notes": ""
+    }
+  ]
+}
+```
+
+See `connections.example.json` in the repo root for a working example. The `POST /api/connections/import` and `GET /api/connections/export` HTTP endpoints accept/return the same format.
+
+> **Migrating from `dbconfs/*.txt`:** run `node tools/dbconfs-to-json.mjs <dir>` to convert legacy files into the universal JSON format, then `lwdb import data/connections.import.json`. After migration, `dbConfsDir` is no longer required.
+
+---
+
 ## Error codes
 
 Stable across the surface. Match on these, not on message text.
@@ -251,7 +341,7 @@ Stable across the surface. Match on these, not on message text.
 | `AGENT_WRITES_DISABLED` | Write attempted but the master switch is off. | Ask the user to enable Settings → AI Agents → "Allow agent writes". Don't flip it yourself. |
 | `CONFIRM_REQUIRED` | Write allowed, but no `--yes` confirmation. | Ask the user to confirm the specific write, then re-run with `--yes`. |
 | `READONLY_BLOCKED` | The HTTP `/api/query` got a non-SELECT without `writable`. | (UI path.) For the CLI, see the two codes above. |
-| `UNKNOWN_SERVER` | Server id doesn't match any `dbconfs/*.txt`. | `lwdb servers` to list. |
+| `UNKNOWN_SERVER` | Server id doesn't match any configured connection. | `lwdb servers` to list; `lwdb conn-add` to add. |
 | `NOT_FOUND` | Snippet id/name didn't match. | `lwdb snippets <pattern>`. |
 | `TIMEOUT` | Query/connection exceeded its (adaptive) timeout. | Tunnel up? Try again; lwdb retries transient failures once for read-only queries. |
 | `DB_ERROR` | The underlying MySQL error. | The `message` field has the MySQL text. |

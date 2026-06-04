@@ -30,6 +30,12 @@ All notable changes to **lwdb** are documented here. This project follows [Keep 
 - **DBeaver-style row context menu.** Right-click any result row → copy as `INSERT` / `UPDATE` / `DELETE`, with WHERE on the detected primary key. Also Copy row as CSV / JSON. Falls back to "WHERE all cols" when no PK is known.
 - **DBeaver-style keyboard shortcuts**: `⌘/Ctrl+Enter` and `F5` run the active query; `⌘/Ctrl+T` new tab; `⌘/Ctrl+W` / `⌘/Ctrl+F4` close tab; `⌘/Ctrl+S` save current SQL as snippet; `⌘/Ctrl+Shift+W` toggle write mode; `Ctrl+Tab` / `Ctrl+Shift+Tab` cycle tabs; `Esc` close palette/modal; `⌘/Ctrl+K` toggle command palette; `⌘/Ctrl+,` open settings.
 
+#### Connections
+
+- **Built-in connection manager** — add/edit/delete/test DB connections from Settings → Connections (and a "+ Add connection" command-palette action that opens it as a modal) and the `lwdb conn-add` / `conn-edit` / `conn-rm` / `conn-test` CLI commands. Connections are stored in SQLite (`data/lwdb.sqlite`, gitignored) alongside snippets/history, so they ride the existing backup/restore. Edits apply live without a restart. Fields: label, host, port, user, password, color, group, notes. `kind` is auto (`localhost` → local, everything else → remote) with a manual override.
+- **Universal JSON import/export** — `lwdb import <file.json>` / `lwdb export [file.json]` and `POST /api/connections/import` / `GET /api/connections/export`, format `{ "version": 1, "connections": [...] }`. See `connections.example.json`. Export includes passwords (it's a local backup file).
+- **Connection test** — `lwdb conn-test <id>` and an inline "Test connection" button report connect latency before saving.
+
 #### Connection handling
 
 - **Adaptive per-server connect timeout.** Per-server EWMA of connect time → next attempt uses `2.5 × EWMA` clamped to `[1.5 s, max(3× base, 12 s)]`. Fast SSH tunnels fail fast; slow WAN hosts get breathing room.
@@ -58,6 +64,7 @@ All notable changes to **lwdb** are documented here. This project follows [Keep 
 
 ### Changed
 
+- **Removed the Linways `dbconfs/*.txt` dependency.** Connections now live in lwdb's own SQLite store; `dbConfsDir` is no longer required to boot. Migrate legacy files once with `node tools/dbconfs-to-json.mjs <dir>` then `lwdb import data/connections.import.json`.
 - Default connect timeout reduced from 8 s to 4 s — adaptive logic relaxes it per-server as needed.
 - Old `bin/install-skill.mjs` removed; everything routes through `install.mjs`.
 
