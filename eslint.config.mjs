@@ -2,7 +2,7 @@ import vue from 'eslint-plugin-vue';
 
 export default [
   {
-    ignores: ['dist/', 'node_modules/', 'data/', '*.config.js'],
+    ignores: ['dist/', 'node_modules/', 'data/', 'src-tauri/target/', '*.config.js'],
   },
   {
     files: ['**/*.{js,mjs}'],
