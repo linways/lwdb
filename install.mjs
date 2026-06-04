@@ -41,6 +41,7 @@ const HOME       = os.homedir();
 const LWDB_DIR   = path.join(HOME, '.lwdb');
 const SKILL_DIR  = path.join(LWDB_DIR, 'skill');
 const CANONICAL_SKILL = path.join(SKILL_DIR, 'SKILL.md');
+const LAUNCHER_MANIFEST = path.join(LWDB_DIR, 'launcher.json');
 
 const REPO_SKILL_DIR = path.join(REPO_ROOT, '.claude', 'skills', 'lwdb');
 const REPO_SKILL = path.join(REPO_SKILL_DIR, 'SKILL.md');
@@ -126,6 +127,7 @@ function install() {
   ensureDir(SKILL_DIR);
   snapshotSkill();
   linkSkillsForAllAITools();
+  writeLauncherManifest();
 
   console.log('');
   console.log(c('green', '✓ install complete'));
@@ -148,6 +150,7 @@ function update() {
   npmLink();
   snapshotSkill();
   linkSkillsForAllAITools();
+  writeLauncherManifest();
   console.log('');
   console.log(c('green', '✓ update complete'));
   console.log('');
@@ -262,6 +265,28 @@ function snapshotSkill() {
   ensureDir(SKILL_DIR);
   fs.copyFileSync(REPO_SKILL, CANONICAL_SKILL);
   console.log(c('green', `✓ skill snapshot -> ${CANONICAL_SKILL}`));
+}
+
+/**
+ * Record where the desktop app should find Node + the server. The desktop
+ * (which inherits a minimal PATH and can't see nvm/version-manager Node) reads
+ * this to launch the server with an absolute, known-good runtime. `process.execPath`
+ * is the Node that ran this installer — install.mjs preflight already enforces ≥22.5.
+ */
+export function writeLauncherManifest(dir = LWDB_DIR) {
+  ensureDir(dir);
+  const pkg = JSON.parse(fs.readFileSync(REPO_PKG, 'utf8'));
+  const manifest = {
+    version: pkg.version,
+    node: process.execPath,
+    serverEntry: path.join(REPO_ROOT, 'server', 'index.mjs'),
+    cli: path.join(REPO_ROOT, 'bin', 'lwdb.mjs'),
+    cwd: REPO_ROOT,
+    writtenAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(path.join(dir, 'launcher.json'), JSON.stringify(manifest, null, 2) + '\n');
+  console.log(c('green', `✓ launcher manifest -> ${path.join(dir, 'launcher.json')}`));
+  return manifest;
 }
 
 function linkSkillsForAllAITools() {
@@ -441,4 +466,4 @@ function resolveDbConfsDir() {
   } catch (_) { return null; }
 }
 
-main();
+if (import.meta.url === `file://${process.argv[1]}`) main();
