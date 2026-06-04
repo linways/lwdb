@@ -4,8 +4,8 @@
 if (!process.env.LW_DB_LOG_LEVEL) process.env.LW_DB_LOG_LEVEL = 'warn';
 
 import { buildRegistry } from '../server/lib/registry.mjs';
-import { safeConnection } from '../server/lib/connections.mjs';
-import { listDatabases, listTables, describeTable, fetchSchema, closeAll } from '../server/lib/pool.mjs';
+import { safeConnection } from '../server/lib/connectionStore.mjs';
+import { listDatabases, listTables, describeTable, fetchSchema, closeAll, pingConnection } from '../server/lib/pool.mjs';
 import { runQuery } from '../server/lib/runQuery.mjs';
 import { inspectSql } from '../server/lib/sqlGuard.mjs';
 import { bindParams } from '../server/lib/snippets.mjs';
@@ -111,6 +111,15 @@ DATA
   query <server> [db] "<sql>"       [--yes] [--limit=N]
                                        # writes need: agent-writes ON + --yes (user-confirmed)
 
+CONNECTIONS
+  servers | connections             # list connections
+  conn-add --label= --host= --user= [--port=3306] [--password=] [--color=] [--group=] [--notes=] [--local]
+  conn-edit <id> [--label=] [--host=] [--port=] [--user=] [--password=] [--color=] [--group=] [--notes=] [--local|--remote]
+  conn-rm <id> --yes
+  conn-test <id>                    # or: --host= --user= [--port=] [--password=]
+  import <file.json>                # bulk upsert connections (universal format)
+  export [file.json]                # dump connections (includes passwords)
+
 SAVED QUERIES
   snippets [pattern]
   save <name> "<sql>" [--description=] [--default-server=] [--default-db=] [--tags=a,b]
@@ -184,9 +193,10 @@ async function main() {
   const registry = await buildRegistry();
 
   switch (cmd) {
-    case 'servers': {
-      emit(registry.connections.map(safeConnection), {
-        table: true, columns: ['id', 'kind', 'host', 'port', 'user'],
+    case 'servers':
+    case 'connections': {
+      emit(registry.listConnections().map(safeConnection), {
+        table: true, columns: ['id', 'label', 'kind', 'host', 'port', 'user'],
       });
       break;
     }
@@ -469,6 +479,89 @@ async function main() {
         die("usage: lwdb agent-writes [on|off]");
       } else {
         emit({ agentWrites: registry.preferences.get(AGENT_WRITES_KEY, false) === true });
+      }
+      break;
+    }
+
+    case 'conn-add': {
+      if (!flags.label || !flags.host || !flags.user) {
+        die('usage: lwdb conn-add --label=.. --host=.. --user=.. [--port=3306] [--password=..] [--color=..] [--group=..] [--notes=..] [--local]');
+      }
+      const conn = registry.connectionStore.create({
+        label: flags.label,
+        host: flags.host,
+        port: flags.port ? parseInt(flags.port, 10) : 3306,
+        user: flags.user,
+        password: flags.password === true ? '' : (flags.password || ''),
+        color: flags.color || null,
+        group: flags.group || null,
+        notes: flags.notes || null,
+        kind: flags.local ? 'local' : undefined,
+      });
+      emit(safeConnection(conn));
+      break;
+    }
+
+    case 'conn-edit': {
+      const id = positional.shift();
+      if (!id) die('usage: lwdb conn-edit <id> [--label=..] [--host=..] [--port=..] [--user=..] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--remote]');
+      const patch = {};
+      for (const k of ['label', 'host', 'user', 'password', 'color', 'group', 'notes']) {
+        if (k in flags) patch[k] = flags[k] === true ? '' : flags[k];
+      }
+      if ('port' in flags) patch.port = parseInt(flags.port, 10);
+      if (flags.local) patch.kind = 'local';
+      if (flags.remote) patch.kind = 'remote';
+      const conn = registry.connectionStore.update(id, patch);
+      if (!conn) die(`connection not found: ${id}`);
+      emit(safeConnection(conn));
+      break;
+    }
+
+    case 'conn-rm': {
+      const id = positional.shift();
+      if (!id) die('usage: lwdb conn-rm <id> --yes');
+      if (!(flags.yes || flags.confirm)) die('refusing to delete without --yes');
+      if (!registry.connectionStore.delete(id)) die(`connection not found: ${id}`);
+      emit({ deleted: id });
+      break;
+    }
+
+    case 'conn-test': {
+      const id = positional.shift();
+      let conn;
+      if (id) conn = registry.connectionStore.get(id);
+      else if (flags.host) conn = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
+      if (!conn) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..])');
+      try { emit(await pingConnection(conn, { timeoutMs: 5000 })); }
+      catch (err) { die(`connect failed: ${err.message}`); }
+      break;
+    }
+
+    case 'import': {
+      const file = positional.shift();
+      if (!file) die('usage: lwdb import <file.json>');
+      const { readFile } = await import('node:fs/promises');
+      let payload;
+      try { payload = JSON.parse(await readFile(file, 'utf8')); }
+      catch (err) { die(`cannot read/parse ${file}: ${err.message}`); }
+      const items = Array.isArray(payload) ? payload : (payload.connections || []);
+      if (!items.length) die('no connections in payload');
+      const result = registry.connectionStore.bulkUpsert(items);
+      if (wantJson) emit({ count: result.length, result });
+      else emit(result, { table: true, columns: ['status', 'id', 'label'] });
+      break;
+    }
+
+    case 'export': {
+      const file = positional.shift();
+      const doc = registry.connectionStore.exportAll();
+      if (file) {
+        const { writeFile } = await import('node:fs/promises');
+        await writeFile(file, JSON.stringify(doc, null, 2) + '\n', 'utf8');
+        emit({ written: file, count: doc.connections.length });
+      } else {
+        process.stdout.write(JSON.stringify(doc, null, 2) + '\n');
       }
       break;
     }
