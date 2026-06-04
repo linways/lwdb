@@ -134,8 +134,9 @@ function install() {
   console.log('');
   doctor({ exitOnFail: false });
   console.log('');
-  console.log(`${c('bold', 'Next:')} run ${c('cyan', 'lwdb servers')} to verify your connection configs.`);
-  console.log(`Configure ${c('cyan', 'LW_DB_CONFS_DIR')} in your environment (or ${c('cyan', 'package.json#lwDb.dbConfsDir')}) if not already set.`);
+  console.log(`${c('bold', 'Next:')} add a connection — ${c('cyan', 'lwdb conn-add --label="Local" --host=localhost --user=root')}`);
+  console.log(`  or import many at once — ${c('cyan', 'lwdb import connections.example.json')}  (see connections.example.json)`);
+  console.log(`  desktop app (optional): ${c('cyan', 'npm run tauri:build')} then install the .deb`);
 }
 
 function update() {
@@ -170,6 +171,7 @@ function status() {
   banner('status');
   console.log(`repo:      ${REPO_ROOT}`);
   console.log(`snapshot:  ${CANONICAL_SKILL} ${exists(CANONICAL_SKILL) ? c('green', '✓') : c('red', 'missing')}`);
+  console.log(`launcher:  ${LAUNCHER_MANIFEST} ${exists(LAUNCHER_MANIFEST) ? c('green', '✓') : c('yellow', 'missing')}`);
   for (const tool of AI_TOOLS) {
     const link = path.join(HOME, tool.skillsRel, SKILL_NAME);
     const installed = isToolPresent(tool);
@@ -199,6 +201,10 @@ function uninstall() {
       try { fs.rmSync(link, { recursive: true, force: true }); console.log(c('green', `✓ removed ${link}`)); }
       catch (e) { console.error(c('red', `✗ ${link}: ${e.message}`)); }
     }
+  }
+  if (exists(LAUNCHER_MANIFEST)) {
+    try { fs.rmSync(LAUNCHER_MANIFEST, { force: true }); console.log(c('green', `✓ removed ${LAUNCHER_MANIFEST}`)); }
+    catch (e) { console.error(c('red', `✗ ${LAUNCHER_MANIFEST}: ${e.message}`)); }
   }
   // Leave ~/.lwdb in place — the user may want their backups
   console.log('');
@@ -346,22 +352,22 @@ function doctor({ exitOnFail = true } = {}) {
     detail: claudeLinkExists ? `${claudeLink} -> ${claudeTarget || '(no symlink target)'}` : claudeLink,
   });
 
-  // 6. dbconfs directory configured
-  const dbConfsDir = resolveDbConfsDir();
-  checks.push({
-    name: 'dbconfs directory',
-    ok: !!dbConfsDir,
-    detail: dbConfsDir || 'not set (LW_DB_CONFS_DIR env or package.json#lwDb.dbConfsDir)',
-  });
-
-  // 7. dbconfs has *.txt files
-  if (dbConfsDir && exists(dbConfsDir)) {
-    const txtCount = fs.readdirSync(dbConfsDir).filter((f) => f.endsWith('.txt')).length;
-    checks.push({
-      name: 'connections configured',
-      ok: txtCount > 0,
-      detail: txtCount > 0 ? `${txtCount} *.txt file(s)` : `no *.txt in ${dbConfsDir}`,
-    });
+  // 6. desktop launcher manifest (Node + server path the .deb uses)
+  if (!exists(LAUNCHER_MANIFEST)) {
+    checks.push({ name: 'desktop launcher manifest', ok: false, detail: `${LAUNCHER_MANIFEST} (run install to create)` });
+  } else {
+    try {
+      const m = JSON.parse(fs.readFileSync(LAUNCHER_MANIFEST, 'utf8'));
+      const nodeOk = !!m.node && exists(m.node);
+      const entryOk = !!m.serverEntry && exists(m.serverEntry);
+      checks.push({
+        name: 'desktop launcher manifest',
+        ok: nodeOk && entryOk,
+        detail: `node ${nodeOk ? '✓' : 'missing'}, serverEntry ${entryOk ? '✓' : 'missing'}`,
+      });
+    } catch (e) {
+      checks.push({ name: 'desktop launcher manifest', ok: false, detail: `invalid JSON: ${e.message}` });
+    }
   }
 
   // 8. lwdb config loads
@@ -456,14 +462,6 @@ function gitPull() {
     console.error(c('yellow', '  Resolve manually (commit/stash/discard) and run update again.'));
     process.exit(1);
   }
-}
-
-function resolveDbConfsDir() {
-  if (process.env.LW_DB_CONFS_DIR) return process.env.LW_DB_CONFS_DIR;
-  try {
-    const pkg = JSON.parse(fs.readFileSync(REPO_PKG, 'utf8'));
-    return pkg.lwDb?.dbConfsDir || null;
-  } catch (_) { return null; }
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) main();
