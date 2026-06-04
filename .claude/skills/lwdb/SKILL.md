@@ -10,7 +10,7 @@ description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, r
 **Every command:**
 
 - Outputs JSON when `stdout` is not a TTY (so `lwdb cmd | jq` and agent harnesses get parseable output). Force with `--json`; force pretty with `> /dev/tty` redirection.
-- Reads connection definitions from lwdb's own SQLite store (`data/lwdb.sqlite`). Legacy `dbconfs/*.txt` files are also supported. You never see credentials in the chat.
+- Reads connection definitions from lwdb's own SQLite store (`data/lwdb.sqlite`). You never see credentials in the chat.
 - Is **read-only by default**. `SELECT / SHOW / DESCRIBE / EXPLAIN / WITH / USE` are allowed. Writes (INSERT / UPDATE / DELETE / DDL) need a human-set master switch **plus** a per-call `--yes` confirmation — see "Writes" below.
 - Has a typed `error.code` and a non-zero exit code on failure.
 - Will not prompt for missing arguments — missing flags are errors, not hangs.
@@ -33,7 +33,7 @@ The repo path is whatever directory contains the cloned `lwdb` source. If you do
 
 **Verify with `lwdb doctor`** (same as `node install.mjs doctor`). Eight checks: Node version, `node_modules`, `lwdb` on PATH, skill snapshot, Claude skill symlink, SQLite store accessible, connections configured, and a live `lwdb servers` load. If any check fails, surface the output verbatim — do not try to repair.
 
-If `connections configured` shows `0`, no connections have been added yet. Add one with `lwdb conn-add` or import from a JSON file with `lwdb import`. If migrating from legacy `dbconfs/*.txt` files, run `node tools/dbconfs-to-json.mjs <dir>` then `lwdb import data/connections.import.json`.
+If `lwdb servers` returns an empty list, no connections have been added yet. Add one with `lwdb conn-add` or import from a JSON file with `lwdb import`. If migrating from legacy `dbconfs/*.txt` files, run `node tools/dbconfs-to-json.mjs <dir>` then `lwdb import data/connections.import.json`.
 
 **Update — pull latest + reinstall + refresh skill:**
 
