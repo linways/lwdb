@@ -6,6 +6,7 @@ import Workspace from './components/Workspace.vue';
 import CommandPalette from './components/CommandPalette.vue';
 import SnippetEditor from './components/SnippetEditor.vue';
 import Settings from './components/Settings.vue';
+import ConnectionsManager from './components/ConnectionsManager.vue';
 import StatusBar from './components/StatusBar.vue';
 import Toast from './components/Toast.vue';
 
@@ -27,13 +28,14 @@ function onKeydown(e) {
 
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
-  const inModal = paletteOpen.value || editingSnippet.value || settingsOpen.value;
+  const inModal = paletteOpen.value || editingSnippet.value || settingsOpen.value || store.connectionsOpen;
 
   // Esc — close any open modal/palette
   if (e.key === 'Escape') {
     if (paletteOpen.value) { closePalette(); return; }
     if (editingSnippet.value) { editingSnippet.value = null; return; }
     if (settingsOpen.value) { settingsOpen.value = false; return; }
+    if (store.connectionsOpen) { actions.closeConnections(); return; }
   }
 
   // Cmd/Ctrl+, — open settings (matches OS-wide convention)
@@ -157,9 +159,34 @@ async function handleSaveSnippet(payload) {
       v-if="settingsOpen"
       @close="settingsOpen = false"
     />
+    <div
+      v-if="store.connectionsOpen"
+      class="modal-overlay"
+      @click.self="actions.closeConnections()"
+    >
+      <div class="modal connections-modal">
+        <h2>Connections</h2>
+        <div class="connections-body">
+          <ConnectionsManager />
+        </div>
+        <div class="footer">
+          <button
+            class="btn primary"
+            @click="actions.closeConnections()"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
     <Toast
       v-if="store.toast"
       :toast="store.toast"
     />
   </div>
 </template>
+
+<style scoped>
+.connections-modal { width: min(820px, 100%); max-height: 80vh; }
+.connections-body { padding: 14px 20px; overflow-y: auto; flex: 1; }
+</style>
