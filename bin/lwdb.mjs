@@ -531,7 +531,7 @@ async function main() {
       const id = positional.shift();
       let conn;
       if (id) conn = registry.connectionStore.get(id);
-      else if (flags.host) conn = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
+      else if (flags.host && flags.user) conn = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
       if (!conn) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..])');
       try { emit(await pingConnection(conn, { timeoutMs: 5000 })); }
       catch (err) { die(`connect failed: ${err.message}`); }

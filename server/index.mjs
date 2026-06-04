@@ -123,8 +123,8 @@ app.post('/api/connections/test', asyncRoute(async (req) => {
 }));
 
 app.post('/api/connections/import', asyncRoute(async (req) => {
-  const body = ensureObject(req.body, 'body');
-  const items = Array.isArray(body) ? body : (body.connections || []);
+  const body = req.body;
+  const items = Array.isArray(body) ? body : (body?.connections || []);
   ensureArray(items, 'connections');
   if (!items.length) throw appError(Codes.BAD_REQUEST, 'No connections in payload');
   const result = registry.connectionStore.bulkUpsert(items);
