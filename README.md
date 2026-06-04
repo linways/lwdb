@@ -47,7 +47,7 @@ Details below.
 - **Adaptive connection handling.** Per-server EWMA of connect time → tighter timeouts on fast SSH tunnels, more slack on direct WAN hosts. One automatic retry on transient errors (read-only queries only).
 - **Read-only by default.** SELECT / SHOW / DESCRIBE / EXPLAIN only — until you explicitly unlock writes.
 - **SQLite storage.** Snippets, query history, preferences in one file (`~/lwdb/data/lwdb.sqlite`). Backup = copy a file.
-- **Built-in connection store.** Connections live in lwdb's own SQLite store — add them with `lwdb conn-add` or `lwdb import` (universal JSON, see `connections.example.json`). Legacy Linways `dbconfs/*.txt` still load if present.
+- **Built-in connection store.** Connections live in lwdb's own SQLite store — add them with `lwdb conn-add` or `lwdb import` (universal JSON, see `connections.example.json`). Migrating from the old Linways `dbconfs/*.txt`? Convert once with `node tools/dbconfs-to-json.mjs <dir>`, then `lwdb import`.
 - **Agent-friendly CLI.** `lwdb` mirrors every UI capability; auto-JSON when piped; bulk template push idempotent by name.
 
 ---
@@ -351,7 +351,7 @@ server/
     ├── log.mjs         # structured JSON logger
     ├── errors.mjs      # typed error codes + HTTP status mapping
     ├── validate.mjs    # request input guards
-    ├── connectionStore.mjs # SQLite connection store (+ legacy dbconfs/*.txt loader)
+    ├── connectionStore.mjs # SQLite connection store (CRUD, import/export)
     ├── db.mjs          # opens SQLite, runs migrations, withTx
     ├── snippets.mjs    # saved queries + named-param + operator overrides
     ├── history.mjs     # query history (bounded, auto-trimmed)
