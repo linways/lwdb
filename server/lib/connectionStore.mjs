@@ -79,7 +79,7 @@ export class ConnectionStore {
     if (!input.host) throw new Error('host required');
     if (!input.user) throw new Error('user required');
     const desired = slugify(input.id || label);
-    const id = this.get(desired) ? this._uniqueId(desired) : desired;
+    const id = this._uniqueId(desired);
     const now = new Date().toISOString();
     const kind = deriveKind(input.host, input.kind);
     this.db.prepare(
@@ -149,6 +149,7 @@ export class ConnectionStore {
       connections: this.all().map((c) => ({
         id: c.id, label: c.label, kind: c.kind, host: c.host, port: c.port,
         user: c.user, password: c.password, color: c.color, group: c.group, notes: c.notes,
+        sortOrder: c.sortOrder,
       })),
     };
   }

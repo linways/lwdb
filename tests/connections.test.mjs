@@ -109,5 +109,6 @@ test('ConnectionStore.exportAll round-trips through bulkUpsert', async () => {
     assert.equal(doc.version, 1);
     assert.equal(doc.connections[0].password, 'pw');
     assert.equal(doc.connections[0].group, 'prod');
+    assert.equal(doc.connections[0].sortOrder, 0);
   } finally { await cleanup(); }
 });
