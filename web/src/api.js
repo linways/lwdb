@@ -29,4 +29,11 @@ export const api = {
   updateSnippet: (id, body) => req(`/snippets/${id}`, { method: 'PUT', body }),
   deleteSnippet: (id) => req(`/snippets/${id}`, { method: 'DELETE' }),
   runSnippet: (id, body) => req(`/snippets/${id}/run`, { method: 'POST', body }),
+  connections: () => req('/connections'),
+  createConnection: (body) => req('/connections', { method: 'POST', body }),
+  updateConnection: (id, body) => req(`/connections/${encodeURIComponent(id)}`, { method: 'PUT', body }),
+  deleteConnection: (id) => req(`/connections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  testConnection: (body) => req('/connections/test', { method: 'POST', body }),
+  importConnections: (doc) => req('/connections/import', { method: 'POST', body: doc }),
+  exportConnections: () => req('/connections/export'),
 };
