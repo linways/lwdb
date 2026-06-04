@@ -251,3 +251,25 @@ export function poolStats() {
     health: healthTracker?.snapshot() || null,
   };
 }
+
+/**
+ * One-off connectivity probe for the "Test connection" action. Opens a single
+ * connection (NOT pooled, so an unsaved/ad-hoc connection leaves nothing
+ * behind), pings, and closes. Returns latency in ms or throws.
+ */
+export async function pingConnection(connection, { timeoutMs } = {}) {
+  const start = Date.now();
+  const conn = await mysql.createConnection({
+    host: connection.host,
+    port: Number(connection.port) || 3306,
+    user: connection.user,
+    password: connection.password || '',
+    connectTimeout: timeoutMs || activeConfig.connectTimeoutMs,
+  });
+  try {
+    await conn.ping();
+    return { ok: true, ms: Date.now() - start };
+  } finally {
+    try { await conn.end(); } catch (_) { /* ignore */ }
+  }
+}
