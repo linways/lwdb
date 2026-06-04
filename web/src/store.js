@@ -64,6 +64,7 @@ export const store = reactive({
   loadingTables: false,
   loadingSchema: false,
   toast: null,
+  connectionsOpen: false,
   prefs: { ...initialPrefs },
 });
 
@@ -167,6 +168,46 @@ export const actions = {
     } finally {
       store.loadingTables = false;
     }
+  },
+
+  openConnections() { store.connectionsOpen = true; },
+  closeConnections() { store.connectionsOpen = false; },
+
+  /** Reload the server list from the backing store (after add/edit/delete). */
+  async reloadServers(selectId = null) {
+    const { servers } = await api.servers();
+    store.servers = servers;
+    if (selectId && servers.find((s) => s.id === selectId)) {
+      await this.selectServer(selectId);
+    } else if (store.currentServer && !servers.find((s) => s.id === store.currentServer)) {
+      // current server was deleted — fall back to the first available
+      if (servers[0]) await this.selectServer(servers[0].id);
+      else { store.currentServer = null; store.databases = []; store.tables = []; }
+    }
+  },
+
+  async saveConnection(payload) {
+    try {
+      const saved = payload.id && payload._editing
+        ? await api.updateConnection(payload.id, payload)
+        : await api.createConnection(payload);
+      await this.reloadServers(saved.connection.id);
+      toast(payload._editing ? 'Connection updated' : 'Connection added', 'good');
+      return saved.connection;
+    } catch (err) { toast(err.message, 'error'); throw err; }
+  },
+
+  async deleteConnection(id) {
+    if (store.prefs.confirmDestructive && !confirm('Delete this connection?')) return;
+    try {
+      await api.deleteConnection(id);
+      await this.reloadServers();
+      toast('Connection deleted', 'good');
+    } catch (err) { toast(err.message, 'error'); }
+  },
+
+  async testConnection(payload) {
+    return api.testConnection(payload); // caller handles ok/err for inline UI feedback
   },
 
   /** Force a fresh fetch of the active db's schema, bypassing cache. */
