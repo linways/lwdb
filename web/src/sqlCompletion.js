@@ -23,12 +23,14 @@ const TABLE_POSITION_RE = /(?:\bfrom\b|\bjoin\b|\bupdate\b|\binto\b)\s+$/i;
 
 /**
  * Walk the doc once, character-by-character, tracking comment + quote state.
- * Returns an array of { name } for every table referenced in a FROM or JOIN.
+ * Returns an array of { name } for every table named after a table-introducing
+ * keyword: FROM / JOIN (SELECT, DELETE), UPDATE, and INTO (INSERT/REPLACE INTO).
+ * An optional `db.` schema qualifier is allowed and stripped to the table name.
  */
 export function extractReferencedTables(docText) {
-  // Strip comments and string content while preserving structure so a simple
-  // /\b(FROM|JOIN)\b/ scan won't be fooled by a `FROM` sitting in a comment
-  // or string. Backticked identifiers ARE preserved (we want the table name).
+  // Strip comments and string content while preserving structure so the keyword
+  // scan won't be fooled by a `FROM`/`UPDATE` sitting in a comment or string.
+  // Backticked identifiers ARE preserved (we want the table name).
   let clean = '';
   let i = 0;
   const n = docText.length;
@@ -64,7 +66,9 @@ export function extractReferencedTables(docText) {
   }
 
   const tables = [];
-  const re = /\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z_0-9]*)/gi;
+  // Optional `db.` qualifier, then the table identifier. We keep the part after
+  // the last dot (the table), since lwdb completes columns for a table name.
+  const re = /\b(?:FROM|JOIN|UPDATE|INTO)\s+(?:[A-Za-z_][A-Za-z_0-9]*\.)?([A-Za-z_][A-Za-z_0-9]*)/gi;
   let m;
   while ((m = re.exec(clean)) !== null) {
     tables.push({ name: m[1] });

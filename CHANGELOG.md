@@ -6,6 +6,14 @@ All notable changes to **lwdb** are documented here. This project follows [Keep 
 
 ### Added
 
+#### Desktop & packaging
+
+- **Optional desktop app (Tauri v2)** under [`src-tauri/`](./src-tauri). A thin Rust shell wraps the existing web UI in a native window — no terminal, no browser tab. `npm run tauri:dev` runs vite + API behind a hot-reloading window; `npm run tauri:build` produces an installable app (.AppImage / .deb on Linux) that spawns the Node server on launch (waits for `127.0.0.1:4321`, then loads it) and kills it on close. The server runs from the repo location baked in at build time — overridable via `LWDB_REPO` / `LWDB_NODE` — so all of the server's path assumptions keep working. **AI agents are unaffected**: they use the headless `lwdb` CLI, which needs no server or window.
+
+#### AI-agent writes
+
+- **Server-side `agentWrites` master switch** (Settings → AI Agents). Off by default: the CLI/agent surface is read-only. When on, a write needs an explicit per-call `--yes` confirmation (which the agent only adds after the human approves). New error codes `AGENT_WRITES_DISABLED` / `CONFIRM_REQUIRED`; new `lwdb agent-writes [on|off]` command. Stored in SQLite so the CLI and UI agree. The web UI keeps its own explicit read-only→write toggle (no extra per-query dialog); confirmation is a CLI/agent concern only.
+
 #### Lifecycle & agent surface
 
 - **One-shot `install.mjs` lifecycle script** following the lw-redmine pattern: a zero-dependency Node script at the repo root with `install` / `update` / `doctor` / `status` / `update-skill` / `uninstall` subcommands. `install` runs `npm install`, globally links the `lwdb` CLI (with a `~/.local/bin` fallback if `npm link` fails), snapshots the agent skill to `~/.lwdb/skill/SKILL.md`, symlinks it into every AI tool's skills folder it finds (`~/.claude/skills/lwdb`, `~/.copilot/skills/lwdb`, `~/.codex/skills/lwdb`), and finishes with a `doctor` pass. `update` does `git pull --ff-only` + reinstall + skill refresh.

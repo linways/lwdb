@@ -94,19 +94,6 @@ function toast(msg, kind = 'info') {
   setTimeout(() => { if (store.toast && store.toast.id === id) store.toast = null; }, 3500);
 }
 
-const READ_ONLY_VERBS = new Set(['SELECT', 'SHOW', 'DESCRIBE', 'DESC', 'EXPLAIN', 'WITH', 'USE']);
-// Light client-side check for the confirm prompt; the server guard is authoritative.
-function looksLikeWrite(sql) {
-  if (!sql) return false;
-  const stripped = sql
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/#[^\n]*/g, ' ')
-    .trim();
-  const verb = (stripped.match(/^(\w+)/) || [, ''])[1].toUpperCase();
-  return verb !== '' && !READ_ONLY_VERBS.has(verb);
-}
-
 export const actions = {
   toast,
 
@@ -238,26 +225,6 @@ export const actions = {
     const tab = store.tabs.find((t) => t.id === store.activeTabId);
     if (!tab) return;
     if (!store.currentServer) { toast('Pick a server first', 'warn'); return; }
-    // Figure out what we're about to run so we can confirm writes up-front.
-    const snippetSql = tab.snippetId
-      ? (store.snippets.find((s) => s.id === tab.snippetId)?.sql || '')
-      : null;
-    const target = tab.snippetId ? null : pickStatement(tab.sql, {
-      cursorOffset: tab.cursorOffset,
-      selFrom: tab.selFrom,
-      selTo: tab.selTo,
-    });
-    const aboutToRun = tab.snippetId ? snippetSql : target.sql;
-
-    // Confirm before any write when writes are unlocked (UI safety net).
-    if (store.writable && store.prefs.confirmDestructive && looksLikeWrite(aboutToRun)) {
-      const verb = (aboutToRun.trim().match(/^(\w+)/) || [, ''])[1].toUpperCase();
-      if (!confirm(`Run this ${verb} statement? It will modify data.\n\n${aboutToRun.slice(0, 300)}`)) {
-        toast('Cancelled', 'warn');
-        return;
-      }
-    }
-
     tab.running = true;
     tab.error = null;
     tab.resultsHidden = false; // running re-opens the panel if hidden
@@ -274,6 +241,11 @@ export const actions = {
       } else {
         // DBeaver-style: run the statement under the caret (or the selection),
         // not the whole editor. Lets multiple statements live in one tab.
+        const target = pickStatement(tab.sql, {
+          cursorOffset: tab.cursorOffset,
+          selFrom: tab.selFrom,
+          selTo: tab.selTo,
+        });
         result = await api.query({
           server: store.currentServer,
           db: store.currentDb,

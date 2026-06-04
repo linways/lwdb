@@ -61,16 +61,32 @@ export function splitStatements(sql) {
   return parts;
 }
 
-/** The statement whose range contains `offset` (falls back to the nearest prior one). */
+/**
+ * First non-whitespace offset of each statement (where its content begins).
+ * The caret "belongs" to a statement from its content-start up to (but not
+ * including) the next statement's content-start — so the terminating `;` and
+ * the blank lines after it map to the statement that just ended, which is what
+ * a user expects when the caret sits at the end of a statement's line.
+ */
+function contentStart(stmt) {
+  return stmt.from + (stmt.text.length - stmt.text.trimStart().length);
+}
+
+/** Index of the statement the caret is in (last whose content-start ≤ offset). */
+function indexAtOffset(stmts, offset) {
+  let idx = 0;
+  for (let k = 0; k < stmts.length; k++) {
+    if (contentStart(stmts[k]) <= offset) idx = k;
+    else break;
+  }
+  return idx;
+}
+
+/** The statement the caret is in (falls back to the first). */
 export function statementAt(sql, offset) {
   const stmts = splitStatements(sql);
   if (!stmts.length) return { text: sql, from: 0, to: sql.length };
-  const hit = stmts.find((s) => offset >= s.from && offset <= s.to);
-  if (hit) return hit;
-  for (let k = stmts.length - 1; k >= 0; k--) {
-    if (stmts[k].to < offset) return stmts[k];
-  }
-  return stmts[0];
+  return stmts[indexAtOffset(stmts, offset)];
 }
 
 /**
@@ -90,12 +106,6 @@ export function pickStatement(sql, { cursorOffset = 0, selFrom = null, selTo = n
   if (stmts.length <= 1) {
     return { sql: sql.trim(), kind: 'single', index: 0, total: Math.max(stmts.length, 1) };
   }
-  let idx = stmts.findIndex((s) => cursorOffset >= s.from && cursorOffset <= s.to);
-  if (idx === -1) {
-    for (let k = stmts.length - 1; k >= 0; k--) {
-      if (stmts[k].to < cursorOffset) { idx = k; break; }
-    }
-    if (idx === -1) idx = 0;
-  }
+  const idx = indexAtOffset(stmts, cursorOffset);
   return { sql: stmts[idx].text.trim(), kind: 'at-cursor', index: idx, total: stmts.length };
 }

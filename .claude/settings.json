@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /var/www/html/linways/professional/ 2>/dev/null | head -30 && echo \"---\" && ls /var/www/html/linways/professional/dbconfs/ 2>/dev/null | head -20)",
+      "Read(//var/www/html/linways/professional/**)",
+      "Read(//var/www/html/linways/professional/dbconfs/**)"
+    ]
+  }
+}

@@ -1,0 +1,106 @@
+# ───────────────────────── lwdb .gitignore ──────────────────────────
+# This file is the canonical source of "what NOT to commit". Anything
+# that is per-user state, regenerable, or carries secrets stays out of
+# the repo. Tracked: source, tests, docs, the agent SKILL.md, the
+# vendor-neutral .claude/settings.json, and lockfiles.
+
+# ── Dependencies & build outputs ──────────────────────────────────────
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# ── Tauri (Rust) build artifacts ──────────────────────────────────────
+# src-tauri/ source IS tracked; the Rust target dir + generated schemas
+# are large and regenerable.
+src-tauri/target/
+src-tauri/gen/
+
+# ── Local runtime state ───────────────────────────────────────────────
+# data/ holds the per-user SQLite database (snippets, query history,
+# preferences, backups). It is created on first run by openDb().
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+# .prev sidecars created by backup.mjs on overwrite
+*.prev
+
+# ── Environment ───────────────────────────────────────────────────────
+# Tracked: .env.example. Everything else is local.
+.env
+.env.local
+.env.*.local
+.env.development
+.env.development.local
+.env.production
+.env.production.local
+.env.test
+.env.test.local
+
+# ── Connection configs (defense-in-depth) ─────────────────────────────
+# The Linways dbconfs/ live OUTSIDE the repo (LW_DB_CONFS_DIR points at
+# /var/www/html/linways/professional/dbconfs). If someone ever copies
+# one into the repo, we must not commit it — those files contain
+# plaintext MySQL passwords.
+dbconfs/
+*.dbconf
+*-dbconf.txt
+**/secrets.json
+
+# ── Test artifacts ────────────────────────────────────────────────────
+# Unit tests run via node:test — no artifacts. E2E tests use
+# Playwright; cache its browsers + reports outside the tree.
+test-results/
+playwright-report/
+playwright/.cache/
+
+# ── Coverage ──────────────────────────────────────────────────────────
+coverage/
+*.lcov
+.nyc_output/
+
+# ── Logs & debug ──────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ── Local agent overrides ─────────────────────────────────────────────
+# .claude/settings.json carries shared project permissions and IS
+# tracked. .claude/settings.local.json is the per-user override and
+# stays local.
+.claude/settings.local.json
+.claude/.cache/
+.claude/local/
+
+# ── Editors / IDE ─────────────────────────────────────────────────────
+# Don't ship personal editor configs. .editorconfig is the shared one.
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.#*
+\#*\#
+
+# ── OS noise ──────────────────────────────────────────────────────────
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── Misc ──────────────────────────────────────────────────────────────
+*.tgz
+*.zip
+# tmp / scratch
+tmp/
+.tmp/
+scratch/

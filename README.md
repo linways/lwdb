@@ -122,6 +122,31 @@ ln -s "$PWD/.claude/skills/lwdb" "$HOME/.claude/skills/lwdb"
 
 ---
 
+## 🖥️ Desktop app (optional)
+
+Prefer a real window over "run the server + open a tab"? lwdb ships a thin [Tauri](https://tauri.app) shell ([`src-tauri/`](./src-tauri)) that wraps the same web UI in a native window and manages the Node server for you.
+
+```bash
+# one-time toolchain (per machine): Rust + WebKitGTK
+#   Rust:  https://rustup.rs   →  rustup default stable
+#   Linux: sudo apt install libwebkit2gtk-4.1-dev build-essential \
+#                           libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+npm run tauri:dev      # native window, HMR — runs `npm run dev` behind it
+npm run tauri:build    # produces an installable app (.AppImage/.deb on Linux)
+```
+
+How it works:
+
+- **Dev** — Tauri runs `npm run dev` (vite + API) and shows the window at the vite URL; hot reload works inside the window.
+- **Prod** — on launch the app spawns `node <repo>/server/index.mjs`, waits for it to listen on `127.0.0.1:4321`, then loads the window there; the server is killed when you close the window.
+- The packaged app runs the server **from the repo location baked in at build time** (so it finds `dist/`, `package.json`, `data/`, the default dbconfs). Moved the repo, or `node` isn't on the GUI's PATH? Override with `LWDB_REPO=/path/to/lwdb` and `LWDB_NODE=/path/to/node`.
+
+> [!NOTE]
+> The desktop app is just a nicer wrapper around the **human** UI. **AI agents don't need it** — they use the `lwdb` CLI, which is fully headless and needs no server or window (see below).
+
+---
+
 ## 🤖 For AI agents
 
 `lwdb` is built to be the substrate under Claude Code / Copilot / any agent that can shell out. Every command auto-emits JSON when not a TTY, errors with stable `code` strings, and never prompts in non-TTY contexts.
