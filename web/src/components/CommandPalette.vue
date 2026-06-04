@@ -74,6 +74,7 @@ const actionsList = computed(() => fuzzyFilter([
       emit('close');
     } },
   { id: 'clear-history', label: 'Clear query history', sub: 'Wipe local history (irreversible)', run: async () => { if (!confirm('Clear all query history?')) return; await fetch('/api/history', { method: 'DELETE' }); actions.toast('History cleared'); emit('close'); } },
+  { id: 'add-connection', label: '+ Add connection', sub: 'Open the Connections manager', run: () => { actions.openConnections(); emit('close'); } },
   { id: 'open-settings', label: 'Open settings', sub: 'Editor, results, data, about', run: () => { emit('open-settings'); emit('close'); } },
   { id: 'refresh-schema', label: 'Refresh schema (current db)', sub: 'Re-fetch table/column completions for the active db', run: async () => { await actions.refreshSchema(); emit('close'); } },
   { id: 'clear-schema-cache', label: 'Clear all cached schemas', sub: 'Force every db to re-fetch on next pick', run: () => { actions.clearSchemaCache(); emit('close'); } },
@@ -235,7 +236,10 @@ watch(() => store.tables, (v) => { tablesCache.value = v; });
               <span v-else-if="item.kind === 'recent'">↺</span>
               <span v-else>→</span>
             </span>
-            <span v-if="item.kind === 'server'">{{ item.label }}<span class="sub">{{ item.host }}:{{ item.port }}</span></span>
+            <span v-if="item.kind === 'server'"><span
+              class="cmd-dot"
+              :style="{ background: item.color || 'transparent' }"
+            />{{ item.label }}<span class="sub">{{ item.host }}:{{ item.port }}</span></span>
             <span v-else-if="item.kind === 'db'">{{ item.name }}</span>
             <span v-else-if="item.kind === 'table'">{{ item.name }}<span
               v-if="item.rowsApprox"

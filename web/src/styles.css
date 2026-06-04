@@ -440,6 +440,7 @@ button { cursor: pointer; }
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.cmd-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 .palette-item .meta {
   font-size: 11px;
   color: var(--text-faint);
