@@ -59,12 +59,6 @@ export async function loadConfig() {
   };
   cfg.sqlitePath = cfg.sqlitePath || join(cfg.dataDir, 'lwdb.sqlite');
 
-  if (!cfg.dbConfsDir) {
-    throw new Error(
-      'lwdb: dbConfsDir not configured. Set LW_DB_CONFS_DIR env or package.json#lwDb.dbConfsDir.'
-    );
-  }
-
   Object.freeze(cfg);
   cached = cfg;
   return cfg;

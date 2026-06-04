@@ -43,6 +43,24 @@ const MIGRATIONS = [
    CREATE TABLE IF NOT EXISTS schema_version (
      version INTEGER PRIMARY KEY
    );`,
+
+  // v2 — connections (replaces dbconfs/*.txt loading)
+  `CREATE TABLE IF NOT EXISTS connections (
+     id TEXT PRIMARY KEY,
+     label TEXT NOT NULL,
+     kind TEXT NOT NULL DEFAULT 'remote',
+     host TEXT NOT NULL,
+     port INTEGER NOT NULL DEFAULT 3306,
+     user TEXT NOT NULL,
+     password TEXT NOT NULL DEFAULT '',
+     color TEXT,
+     group_tag TEXT,
+     notes TEXT,
+     sort_order INTEGER NOT NULL DEFAULT 0,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS idx_connections_kind ON connections(kind);`,
 ];
 
 export async function openDb(dbPath) {
