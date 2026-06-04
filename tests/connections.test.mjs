@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { openDb } from '../server/lib/db.mjs';
 import {
-  ConnectionStore, safeConnection, slugify, deriveKind,
+  ConnectionStore, safeConnection, slugify, deriveKind, normalizeId,
 } from '../server/lib/connectionStore.mjs';
 
 async function freshStore() {
@@ -19,6 +19,40 @@ test('slugify lowercases and dashes non-alphanumerics', () => {
   assert.equal(slugify('V4 · Server 84'), 'v4-server-84');
   assert.equal(slugify('Local DB!!'), 'local-db');
   assert.equal(slugify(''), 'connection');
+});
+
+test('normalizeId preserves case, sanitizes invalid chars', () => {
+  assert.equal(normalizeId('V4-server84'), 'V4-server84');
+  assert.equal(normalizeId('V3-server63'), 'V3-server63');
+  assert.equal(normalizeId('My Conn!'), 'My-Conn');
+  assert.equal(normalizeId(''), 'connection');
+});
+
+test('create preserves an explicit id verbatim (case kept)', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const c = store.create({ id: 'V4-server84', label: 'V4 Server 84', host: '127.0.0.1', port: 3381, user: 'merge' });
+    assert.equal(c.id, 'V4-server84');     // NOT lowercased
+  } finally { await cleanup(); }
+});
+
+test('create without an id slugifies the label (lowercase)', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const c = store.create({ label: 'V4 Server 84', host: 'h', user: 'u' });
+    assert.equal(c.id, 'v4-server-84');    // label-derived → slug
+  } finally { await cleanup(); }
+});
+
+test('bulkUpsert preserves explicit ids verbatim and stays idempotent', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const items = [{ id: 'V4-server84', label: 'x', host: 'h', user: 'u', password: 'p' }];
+    assert.equal(store.bulkUpsert(items)[0].status, 'created');
+    assert.equal(store.bulkUpsert(items)[0].status, 'updated'); // same id → update, not duplicate
+    assert.equal(store.all().length, 1);
+    assert.equal(store.get('V4-server84').id, 'V4-server84');
+  } finally { await cleanup(); }
 });
 
 test('deriveKind: only localhost is local', () => {

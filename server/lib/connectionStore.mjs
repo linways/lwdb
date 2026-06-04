@@ -15,6 +15,17 @@ export function slugify(label) {
   return base || 'connection';
 }
 
+/** Preserve an explicitly-provided id verbatim — only sanitize invalid chars,
+ *  KEEP case — so migrated/known ids like "V4-server84" stay stable across the
+ *  dbconfs→store migration (existing snippets reference them by exact id). */
+export function normalizeId(id) {
+  const base = String(id || '')
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return base || 'connection';
+}
+
 /** Only `localhost` is local; everything else (incl. 127.0.0.1) is remote.
  *  An explicit override of 'local'|'remote' always wins. */
 export function deriveKind(host, override) {
@@ -78,7 +89,7 @@ export class ConnectionStore {
     if (!label) throw new Error('label required');
     if (!input.host) throw new Error('host required');
     if (!input.user) throw new Error('user required');
-    const desired = slugify(input.id || label);
+    const desired = input.id ? normalizeId(input.id) : slugify(label);
     const id = this._uniqueId(desired);
     const now = new Date().toISOString();
     const kind = deriveKind(input.host, input.kind);
@@ -129,7 +140,7 @@ export class ConnectionStore {
           results.push({ label: c?.label || '(unnamed)', status: 'skipped', reason: 'host and user required' });
           continue;
         }
-        const id = slugify(c.id || c.label || c.host);
+        const id = c.id ? normalizeId(c.id) : slugify(c.label || c.host);
         if (this.get(id)) {
           this.update(id, c);
           results.push({ id, label: c.label, status: 'updated' });
