@@ -10,8 +10,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 
 import { buildRegistry } from './lib/registry.mjs';
-import { safeConnection } from './lib/connections.mjs';
-import { listDatabases, listTables, describeTable, fetchSchema, closeAll, poolStats } from './lib/pool.mjs';
+import { safeConnection } from './lib/connectionStore.mjs';
+import { listDatabases, listTables, describeTable, fetchSchema, closeAll, poolStats, pingConnection } from './lib/pool.mjs';
 import { runQuery } from './lib/runQuery.mjs';
 import { bindParams, extractParams } from './lib/snippets.mjs';
 import {
@@ -71,7 +71,7 @@ const packageMeta = JSON.parse(await readFile(join(registry.projectRoot, 'packag
 app.get('/api/health', async () => ({
   ok: true,
   version: packageMeta.version,
-  connections: registry.connections.length,
+  connections: registry.listConnections().length,
   pools: poolStats(),
   uptimeSec: Math.round(process.uptime()),
 }));
@@ -81,13 +81,57 @@ app.get('/api/version', async () => ({ name: packageMeta.name, version: packageM
 // ---------- servers / dbs / tables ----------
 
 app.get('/api/servers', async () => ({
-  servers: registry.connections.map(safeConnection),
+  servers: registry.listConnections().map(safeConnection),
   health: registry.connectionHealth.snapshot(),
 }));
 
 app.get('/api/servers/health', async () => ({
   health: registry.connectionHealth.snapshot(),
 }));
+
+// ---------- connections (CRUD) ----------
+
+app.get('/api/connections', async () => ({
+  connections: registry.connectionStore.all().map(safeConnection),
+}));
+
+app.post('/api/connections', asyncRoute(async (req) => {
+  const body = ensureObject(req.body, 'body');
+  required(body, ['label', 'host', 'user']);
+  return { connection: safeConnection(registry.connectionStore.create(body)) };
+}));
+
+app.put('/api/connections/:id', asyncRoute(async (req) => {
+  const body = ensureObject(req.body || {}, 'body');
+  const conn = registry.connectionStore.update(req.params.id, body);
+  if (!conn) throw appError(Codes.NOT_FOUND, 'Connection not found');
+  return { connection: safeConnection(conn) };
+}));
+
+app.delete('/api/connections/:id', asyncRoute(async (req) => {
+  const ok = registry.connectionStore.delete(req.params.id);
+  if (!ok) throw appError(Codes.NOT_FOUND, 'Connection not found');
+  return { ok: true };
+}));
+
+app.post('/api/connections/test', asyncRoute(async (req) => {
+  const body = ensureObject(req.body || {}, 'body');
+  // Test a saved connection (by id) or an ad-hoc one (inline host/user/...).
+  const conn = body.id ? registry.connectionStore.get(body.id) : body;
+  if (!conn || !conn.host) throw appError(Codes.BAD_REQUEST, 'host required (or a valid id)');
+  return await pingConnection(conn, { timeoutMs: 5000 });
+}));
+
+app.post('/api/connections/import', asyncRoute(async (req) => {
+  const body = ensureObject(req.body, 'body');
+  const items = Array.isArray(body) ? body : (body.connections || []);
+  ensureArray(items, 'connections');
+  if (!items.length) throw appError(Codes.BAD_REQUEST, 'No connections in payload');
+  const result = registry.connectionStore.bulkUpsert(items);
+  return { count: result.length, result };
+}));
+
+app.get('/api/connections/export', async () => registry.connectionStore.exportAll());
 
 app.get('/api/servers/:id/databases', asyncRoute(async (req) => {
   const conn = registry.getConnection(req.params.id);
@@ -272,7 +316,7 @@ try {
   await app.listen({ port: registry.port, host: registry.host });
   log.info('listening', {
     url: `http://${registry.host}:${registry.port}`,
-    connections: registry.connections.length,
+    connections: registry.listConnections().length,
     sqlite: registry.dbPath,
     spaBuilt: existsSync(distDir),
   });
