@@ -1,11 +1,13 @@
 <script setup>
 import { ref, computed } from 'vue';
 import { store, actions } from '../store.js';
+import ConnectionsManager from './ConnectionsManager.vue';
 
 const emit = defineEmits(['close']);
 
 const sections = [
   { id: 'general', label: 'General' },
+  { id: 'connections', label: 'Connections' },
   { id: 'editor',  label: 'Editor'  },
   { id: 'results', label: 'Results' },
   { id: 'agents',  label: 'AI Agents' },
@@ -167,6 +169,11 @@ function resetAll() {
                 Takes effect next reload. Otherwise lwdb is read-only at startup.
               </p>
             </div>
+          </section>
+
+          <!-- CONNECTIONS -->
+          <section v-if="active === 'connections'">
+            <ConnectionsManager />
           </section>
 
           <!-- EDITOR -->
