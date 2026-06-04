@@ -279,7 +279,7 @@ function snapshotSkill() {
  * this to launch the server with an absolute, known-good runtime. `process.execPath`
  * is the Node that ran this installer — install.mjs preflight already enforces ≥22.5.
  */
-export function writeLauncherManifest(dir = LWDB_DIR) {
+export function writeLauncherManifest(dir = LWDB_DIR, { quiet = false } = {}) {
   ensureDir(dir);
   const pkg = JSON.parse(fs.readFileSync(REPO_PKG, 'utf8'));
   const manifest = {
@@ -291,7 +291,7 @@ export function writeLauncherManifest(dir = LWDB_DIR) {
     writtenAt: new Date().toISOString(),
   };
   fs.writeFileSync(path.join(dir, 'launcher.json'), JSON.stringify(manifest, null, 2) + '\n');
-  console.log(c('green', `✓ launcher manifest -> ${path.join(dir, 'launcher.json')}`));
+  if (!quiet) console.log(c('green', `✓ launcher manifest -> ${path.join(dir, 'launcher.json')}`));
   return manifest;
 }
 

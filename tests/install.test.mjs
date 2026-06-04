@@ -9,7 +9,7 @@ import { writeLauncherManifest } from '../install.mjs';
 test('writeLauncherManifest writes a valid manifest to the given dir', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'lwdb-launch-'));
   try {
-    const m = writeLauncherManifest(dir);
+    const m = writeLauncherManifest(dir, { quiet: true });
     assert.equal(m.node, process.execPath);
     assert.ok(m.serverEntry.endsWith('/server/index.mjs'), `serverEntry: ${m.serverEntry}`);
     assert.ok(m.cli.endsWith('/bin/lwdb.mjs'), `cli: ${m.cli}`);
