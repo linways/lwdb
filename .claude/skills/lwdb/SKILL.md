@@ -1,6 +1,6 @@
 ---
 name: lwdb
-description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, run read-only queries, persist parametrized SQL templates, and manage DB connection entries. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through lwdb's own SQLite connection store (or legacy dbconfs/*.txt files) so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, add/edit/test a connection, or look up history across the V3/V4/local MySQL servers.
+description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, run read-only queries, persist parametrized SQL templates, and manage DB connection entries. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through lwdb's own SQLite connection store so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, add/edit/test a connection, or look up history across the V3/V4/local MySQL servers.
 ---
 
 # lwdb — Linways DB CLI for AI agents
