@@ -2,7 +2,7 @@
  * Application registry. Resolves config, loads connection definitions, opens
  * SQLite, and exposes the data stores. A single instance per process.
  */
-import { loadConnections } from './connections.mjs';
+import { ConnectionStore } from './connectionStore.mjs';
 import { openDb } from './db.mjs';
 import { SnippetStore } from './snippets.mjs';
 import { HistoryStore } from './history.mjs';
@@ -33,22 +33,18 @@ export async function buildRegistry() {
   });
   setHealthTracker(connectionHealth);
 
-  const connections = await loadConnections(config.dbConfsDir);
-  if (!connections.length) {
-    log.warn('no connections found — check LW_DB_CONFS_DIR', { dir: config.dbConfsDir });
-  } else {
-    log.info('connections loaded', { count: connections.length, dir: config.dbConfsDir });
-  }
-
   const db = await openDb(config.sqlitePath);
   log.info('sqlite opened', { path: config.sqlitePath });
+
+  const connectionStore = new ConnectionStore(db);
+  log.info('connections', { count: connectionStore.all().length });
 
   const snippets = new SnippetStore(db);
   const history = new HistoryStore(db, { max: config.historyMax });
   const preferences = new PreferenceStore(db);
 
   function getConnection(id) {
-    const c = connections.find((x) => x.id === id);
+    const c = connectionStore.get(id);
     if (!c) throw appError(Codes.UNKNOWN_SERVER, `Unknown server: ${id}`);
     return c;
   }
@@ -61,7 +57,8 @@ export async function buildRegistry() {
     port: config.port,
     host: config.host,
     projectRoot: config.projectRoot,
-    connections,
+    connectionStore,
+    listConnections: () => connectionStore.all(),
     snippets,
     history,
     preferences,
