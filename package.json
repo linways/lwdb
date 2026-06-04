@@ -1,0 +1,77 @@
+{
+  "name": "lwdb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "lwdb — lightweight MySQL browser + agent-friendly CLI for the Linways multi-server setup",
+  "author": "Sibin C Baby <sibincbaby219@gmail.com> (https://github.com/sibincbaby)",
+  "license": "MIT",
+  "homepage": "https://github.com/sibincbaby/lwdb#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sibincbaby/lwdb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/sibincbaby/lwdb/issues"
+  },
+  "keywords": [
+    "mysql",
+    "database",
+    "cli",
+    "db-browser",
+    "claude-code",
+    "ai-agent",
+    "linways"
+  ],
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "bin": {
+    "lwdb": "./bin/lwdb.mjs"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node --watch --no-warnings=ExperimentalWarning server/index.mjs",
+    "dev:web": "vite",
+    "build": "vite build",
+    "start": "node --no-warnings=ExperimentalWarning server/index.mjs",
+    "cli": "node bin/lwdb.mjs",
+    "install:full": "node install.mjs install",
+    "doctor": "node install.mjs doctor",
+    "test": "node --no-warnings=ExperimentalWarning --test --test-reporter=spec \"tests/*.test.mjs\"",
+    "e2e:diagnose": "node tests/e2e/diagnose-results.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,mjs,vue,json,md,css}\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@fastify/static": "^7.0.4",
+    "fastify": "^4.28.1",
+    "mysql2": "^3.11.4"
+  },
+  "devDependencies": {
+    "@codemirror/autocomplete": "^6.18.1",
+    "@codemirror/commands": "^6.7.1",
+    "@codemirror/lang-sql": "^6.8.0",
+    "@codemirror/language": "^6.10.3",
+    "@codemirror/search": "^6.5.6",
+    "@codemirror/state": "^6.4.1",
+    "@codemirror/theme-one-dark": "^6.1.2",
+    "@codemirror/view": "^6.34.1",
+    "@vitejs/plugin-vue": "^5.1.4",
+    "codemirror": "^6.0.1",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.13.0",
+    "eslint-plugin-vue": "^9.30.0",
+    "playwright": "^1.60.0",
+    "prettier": "^3.3.3",
+    "vite": "^5.4.10",
+    "vue": "^3.5.12"
+  },
+  "lwDb": {
+    "dbConfsDir": "/var/www/html/linways/professional/dbconfs",
+    "port": 4321,
+    "host": "127.0.0.1"
+  }
+}
