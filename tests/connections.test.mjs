@@ -1,37 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { loadConnections, safeConnection } from '../server/lib/connections.mjs';
+import { openDb } from '../server/lib/db.mjs';
+import {
+  ConnectionStore, safeConnection, slugify, deriveKind,
+} from '../server/lib/connectionStore.mjs';
 
-test('loadConnections parses host:port form', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'lwdb-conf-'));
-  try {
-    await writeFile(join(dir, 'V4-server84.txt'),
-      `$AMS_AUTONOMOUS_DB_HOST = $HOST = $DB_HOST  = "127.0.0.1:3381";
-       $AMS_AUTONOMOUS_DB_USER = $USER = $DB_USER = "merge";
-       $AMS_AUTONOMOUS_DB_PASSWD = $PASSWD = $DB_PASSWD = "secret";\n`);
-    await writeFile(join(dir, 'localdb.txt'),
-      `$AMS_AUTONOMOUS_DB_HOST = $HOST = $DB_HOST  = "localhost";
-       $AMS_AUTONOMOUS_DB_USER = $USER = $DB_USER = "root";
-       $AMS_AUTONOMOUS_DB_PASSWD = $PASSWD = $DB_PASSWD = "rootpw";\n`);
+async function freshStore() {
+  const dir = await mkdtemp(join(tmpdir(), 'lwdb-conn-'));
+  const db = await openDb(join(dir, 'lwdb.sqlite'));
+  return { store: new ConnectionStore(db), cleanup: () => rm(dir, { recursive: true, force: true }) };
+}
 
-    const conns = await loadConnections(dir);
-    assert.equal(conns.length, 2);
-    // local should sort first
-    assert.equal(conns[0].id, 'localdb');
-    assert.equal(conns[0].kind, 'local');
+test('slugify lowercases and dashes non-alphanumerics', () => {
+  assert.equal(slugify('V4 · Server 84'), 'v4-server-84');
+  assert.equal(slugify('Local DB!!'), 'local-db');
+  assert.equal(slugify(''), 'connection');
+});
 
-    const v4 = conns.find((c) => c.id === 'V4-server84');
-    assert.equal(v4.host, '127.0.0.1');
-    assert.equal(v4.port, 3381);
-    assert.equal(v4.user, 'merge');
-    assert.equal(v4.password, 'secret');
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+test('deriveKind: only localhost is local', () => {
+  assert.equal(deriveKind('localhost'), 'local');
+  assert.equal(deriveKind('127.0.0.1'), 'remote');
+  assert.equal(deriveKind('db.example.com'), 'remote');
+  assert.equal(deriveKind('127.0.0.1', 'local'), 'local'); // explicit override wins
 });
 
 test('safeConnection strips password', () => {
@@ -40,13 +34,80 @@ test('safeConnection strips password', () => {
   assert.equal(safe.hasPassword, true);
 });
 
-test('loadConnections ignores files lacking required fields', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'lwdb-conf-'));
+test('ConnectionStore.create derives id, kind, defaults', async () => {
+  const { store, cleanup } = await freshStore();
   try {
-    await writeFile(join(dir, 'broken.txt'), '$DB_HOST = "x"\n');
-    const conns = await loadConnections(dir);
-    assert.equal(conns.length, 0);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+    const c = store.create({ label: 'V4 Server 84', host: '127.0.0.1', port: 3384, user: 'merge', password: 'secret' });
+    assert.equal(c.id, 'v4-server-84');
+    assert.equal(c.kind, 'remote');
+    assert.equal(c.port, 3384);
+    const local = store.create({ label: 'Local', host: 'localhost', user: 'root' });
+    assert.equal(local.kind, 'local');
+    assert.equal(local.port, 3306); // default
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.create dedupes slug collisions', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const a = store.create({ label: 'Dup', host: 'h1', user: 'u' });
+    const b = store.create({ label: 'Dup', host: 'h2', user: 'u' });
+    assert.equal(a.id, 'dup');
+    assert.equal(b.id, 'dup-2');
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.all sorts local-first then label', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    store.create({ label: 'Zebra', host: 'h', user: 'u' });
+    store.create({ label: 'Apple', host: 'h', user: 'u' });
+    store.create({ label: 'Home', host: 'localhost', user: 'root' });
+    const ids = store.all().map((c) => c.id);
+    assert.deepEqual(ids, ['home', 'apple', 'zebra']);
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.update patches and preserves absent password', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const c = store.create({ label: 'Edit', host: 'localhost', user: 'root', password: 'keepme' });
+    const u = store.update(c.id, { label: 'Edited', host: 'remote.example' });
+    assert.equal(u.label, 'Edited');
+    assert.equal(u.kind, 'remote');     // host change recomputes kind
+    assert.equal(u.password, 'keepme'); // password not in patch → preserved
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.delete removes the row', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const c = store.create({ label: 'Bye', host: 'h', user: 'u' });
+    assert.equal(store.delete(c.id), true);
+    assert.equal(store.get(c.id), null);
+    assert.equal(store.delete('nope'), false);
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.bulkUpsert is idempotent by id', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const items = [{ id: 'server-84', label: 'S84', host: '127.0.0.1', port: 3384, user: 'm', password: 'p' }];
+    const r1 = store.bulkUpsert(items);
+    assert.equal(r1[0].status, 'created');
+    const r2 = store.bulkUpsert(items);
+    assert.equal(r2[0].status, 'updated');
+    assert.equal(store.all().length, 1);
+  } finally { await cleanup(); }
+});
+
+test('ConnectionStore.exportAll round-trips through bulkUpsert', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    store.create({ label: 'A', host: 'localhost', user: 'root', password: 'pw', color: '#e23', group: 'prod', notes: 'n' });
+    const doc = store.exportAll();
+    assert.equal(doc.version, 1);
+    assert.equal(doc.connections[0].password, 'pw');
+    assert.equal(doc.connections[0].group, 'prod');
+  } finally { await cleanup(); }
 });
