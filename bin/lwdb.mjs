@@ -120,6 +120,10 @@ CONNECTIONS
   import <file.json>                # bulk upsert connections (universal format)
   export [file.json]                # dump connections (includes passwords)
 
+SERVER (GUI backend)
+  serve                             # run the HTTP API + Web UI on :4321
+                                       # (this is what the desktop app launches)
+
 SAVED QUERIES
   snippets [pattern]
   save <name> "<sql>" [--description=] [--default-server=] [--default-db=] [--tags=a,b]
@@ -571,10 +575,18 @@ async function main() {
   }
 }
 
-try {
-  await main();
-} catch (err) {
-  die(err.message);
-} finally {
-  await closeAll();
+if (cmd === 'serve') {
+  // Run the HTTP server + Web UI in the foreground. The server owns its own
+  // lifecycle (signal handlers + pool teardown on shutdown), so we deliberately
+  // bypass the CLI's try/finally(closeAll) wrapper. Importing the module starts
+  // it listening and keeps the event loop alive; control never returns here.
+  await import('../server/index.mjs');
+} else {
+  try {
+    await main();
+  } catch (err) {
+    die(err.message);
+  } finally {
+    await closeAll();
+  }
 }
