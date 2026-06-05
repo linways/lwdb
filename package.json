@@ -1,6 +1,6 @@
 {
   "name": "lwdb",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "description": "lwdb — lightweight MySQL browser + agent-friendly CLI for the Linways multi-server setup",
@@ -40,6 +40,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
+    "desktop:build": "APPIMAGE_EXTRACT_AND_RUN=1 tauri build",
+    "desktop:clean": "rm -rf src-tauri/target/release/bundle",
+    "desktop:rebuild": "npm run desktop:clean && npm run desktop:build",
     "install:full": "node install.mjs install",
     "doctor": "node install.mjs doctor",
     "test": "node --no-warnings=ExperimentalWarning --test --test-reporter=spec \"tests/*.test.mjs\"",
