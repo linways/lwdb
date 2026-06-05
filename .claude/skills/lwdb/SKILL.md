@@ -31,14 +31,14 @@ node /path/to/lwdb/install.mjs install
 
 The repo path is whatever directory contains the cloned `lwdb` source. If you don't know where it lives, ask the user once. After the script exits successfully, `lwdb` is on PATH and the skill is freshly mirrored — your *next* command works.
 
-**Verify with `lwdb doctor`** (same as `node install.mjs doctor`). Eight checks: Node version, `node_modules`, `lwdb` on PATH, skill snapshot, Claude skill symlink, SQLite store accessible, connections configured, and a live `lwdb servers` load. If any check fails, surface the output verbatim — do not try to repair.
+**Verify with `lwdb doctor`.** Seven checks: Node version, `node_modules`, `lwdb` on PATH, skill snapshot, Claude skill symlink, desktop launcher manifest, and a live `lwdb servers` load. If any check fails, surface the output verbatim — do not try to repair.
 
 If `lwdb servers` returns an empty list, no connections have been added yet. Add one with `lwdb conn-add` or import from a JSON file with `lwdb import`. If migrating from legacy `dbconfs/*.txt` files, run `node tools/dbconfs-to-json.mjs <dir>` then `lwdb import data/connections.import.json`.
 
 **Update — pull latest + reinstall + refresh skill:**
 
 ```bash
-node /path/to/lwdb/install.mjs update
+lwdb update
 ```
 
 Slow (10–30 s), hits the network. Run only when the user explicitly asks ("update lwdb", "pull latest lwdb", etc.). The updated SKILL.md will be loaded by the *next* agent session, not this one.
@@ -46,7 +46,7 @@ Slow (10–30 s), hits the network. Run only when the user explicitly asks ("upd
 **Skill-only refresh** (after a `git pull` you already did manually):
 
 ```bash
-node /path/to/lwdb/install.mjs update-skill
+lwdb update-skill
 ```
 
 If install fails (e.g., Node < 22.5, npm not on PATH, port conflicts), surface the error verbatim and stop — don't try to repair the environment.
