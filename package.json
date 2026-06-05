@@ -4,15 +4,15 @@
   "private": true,
   "type": "module",
   "description": "lwdb — lightweight MySQL browser + agent-friendly CLI for the Linways multi-server setup",
-  "author": "Sibin C Baby <sibincbaby219@gmail.com> (https://github.com/sibincbaby)",
+  "author": "lwdb contributors",
   "license": "MIT",
-  "homepage": "https://github.com/sibincbaby/lwdb#readme",
+  "homepage": "https://github.com/linways/lwdb#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sibincbaby/lwdb.git"
+    "url": "git+https://github.com/linways/lwdb.git"
   },
   "bugs": {
-    "url": "https://github.com/sibincbaby/lwdb/issues"
+    "url": "https://github.com/linways/lwdb/issues"
   },
   "keywords": [
     "mysql",

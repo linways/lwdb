@@ -419,4 +419,4 @@ Override manually if needed: `LWDB_NODE="$(which node)" lwdb-desktop`.
 
 ## 📜 License
 
-[MIT](./LICENSE) © Sibin C Baby
+[MIT](./LICENSE) © lwdb contributors

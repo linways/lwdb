@@ -5,7 +5,7 @@ description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, r
 
 # lwdb — Linways DB CLI for AI agents
 
-`lwdb` is the command-line surface of [lwdb](https://github.com/sibincbaby/lwdb) — a lightweight DB browser used at Linways to work across the V3 server, multiple V4 servers, and localhost. It shares one library with the web UI; anything you can do in the UI is reachable from `lwdb`.
+`lwdb` is the command-line surface of [lwdb](https://github.com/linways/lwdb) — a lightweight DB browser used at Linways to work across the V3 server, multiple V4 servers, and localhost. It shares one library with the web UI; anything you can do in the UI is reachable from `lwdb`.
 
 **Every command:**
 
