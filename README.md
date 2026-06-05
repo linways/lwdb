@@ -162,10 +162,12 @@ The desktop app is a thin Tauri window over the **installed core** — it doesn'
 
 ```bash
 npm run tauri:dev        # native window, HMR — for development
-npm run tauri:build      # produces .deb / .AppImage under src-tauri/target/release/bundle/
+npm run desktop:build    # build .deb / .rpm / .AppImage → src-tauri/target/release/bundle/
+npm run desktop:clean    # remove old build artifacts (the bundle/ dir)
+npm run desktop:rebuild  # desktop:clean + desktop:build
 ```
 
-Then install the `.deb`. The binary is `lwdb-desktop`; the menu entry is "lwdb".
+`desktop:build` bakes in `APPIMAGE_EXTRACT_AND_RUN=1` so the AppImage builds even without FUSE. Then install the `.deb` (`sudo dpkg -i …`). The binary is `lwdb-desktop`; the menu entry is "lwdb".
 
 Override the Node binary or repo root the app uses with `LWDB_NODE=/path/to/node` and `LWDB_REPO=/path/to/lwdb`.
 

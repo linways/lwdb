@@ -2,9 +2,16 @@
 
 All notable changes to **lwdb** are documented here. This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.1] — 2026-06-05
 
 ### Added
+
+#### Desktop launch & install UX
+
+- **Desktop app launches maximized** by default (`maximized: true` + an explicit `window.maximize()` before show, since the config alone may not apply while the window starts hidden).
+- **Simpler commands.** First-time install is `npm run setup`; lifecycle is `lwdb update` / `lwdb update-skill` / `lwdb uninstall` / `lwdb doctor` (they delegate to `install.mjs`). New build scripts: `npm run desktop:build` (builds `.deb`/`.rpm`/`.AppImage`, with the AppImage FUSE workaround baked in), `npm run desktop:clean`, `npm run desktop:rebuild`.
+- **`~/.lwdb/launcher.json`** (written by the installer) records the correct Node + server path so the desktop app starts reliably when launched from the menu — fixing the "Could not connect to 127.0.0.1: Connection refused" failure caused by a minimal desktop `PATH` resolving `node` to an unsuitable version. The app validates candidate Node binaries with `require('node:sqlite')`, adopts an already-running server instead of double-spawning, and shows a readable error page (not a blank refusal) when the core isn't installed.
+- **GitHub Releases** publish `.deb` / `.rpm` / `.AppImage` per version. Desktop binary is `lwdb-desktop`; bundle id `com.linways.lwdb`.
 
 #### Desktop & packaging
 
