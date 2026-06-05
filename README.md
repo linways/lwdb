@@ -22,7 +22,7 @@ A lightweight MySQL browser and CLI for engineers who manage many databases acro
 ```bash
 # 1. Install the core (CLI + server). Needs Node ≥ 22.5.
 git clone <your-repo-url> lwdb && cd lwdb
-node install.mjs install
+npm run setup
 
 # 2. Add a connection (or import many — see connections.example.json)
 lwdb conn-add --label="Local" --host=localhost --user=root
@@ -62,7 +62,7 @@ Needs **Node ≥ 22.5** (for built-in `node:sqlite`).
 
 ```bash
 git clone <your-repo-url> lwdb && cd lwdb
-node install.mjs install
+npm run setup
 ```
 
 This installs deps, puts the `lwdb` CLI on your PATH, installs the agent skill, and writes `~/.lwdb/launcher.json` (so the desktop app can find this Node + server). Run `lwdb doctor` anytime to check the install.
@@ -88,7 +88,7 @@ See **🖥️ Desktop app** below. It depends on the core being installed.
    - `~/.copilot/skills/lwdb/` (GitHub Copilot)
    - `~/.codex/skills/lwdb/` (Codex CLI)
 6. Writes `~/.lwdb/launcher.json` (the Node binary + server path the desktop app uses).
-7. Runs `doctor` — Node, deps, `lwdb` on PATH, skill snapshot, Claude link, launcher manifest, connections configured, `lwdb servers` loads.
+7. Runs `doctor` — Node, deps, `lwdb` on PATH, skill snapshot, Claude link, launcher manifest, `lwdb servers` loads.
 
 Tools whose dotdir isn't present are skipped silently. Re-running `install` is idempotent.
 
@@ -105,7 +105,7 @@ node install.mjs status
 ### Update
 
 ```bash
-node install.mjs update      # git pull --ff-only → npm install → relink → refresh skill
+lwdb update                  # git pull --ff-only → npm install → relink → refresh skill
 ```
 
 Because every AI tool symlinks the same canonical bundle, `update` only writes `~/.lwdb/skill/` once — the symlinks pick it up automatically. The new SKILL.md is loaded by the **next** agent session, not the current one.
@@ -113,13 +113,13 @@ Because every AI tool symlinks the same canonical bundle, `update` only writes `
 ### Skill-only refresh
 
 ```bash
-node install.mjs update-skill    # after a manual git pull, refresh only the skill snapshot
+lwdb update-skill                # after a manual git pull, refresh only the skill snapshot
 ```
 
 ### Uninstall
 
 ```bash
-node install.mjs uninstall   # removes CLI link + skill symlinks; preserves ~/.lwdb user data
+lwdb uninstall               # removes CLI link + skill symlinks; preserves ~/.lwdb user data
 ```
 
 To wipe data too: `rm -rf ~/.lwdb data/` afterward.
@@ -149,7 +149,7 @@ Prefer a real window over "run the server + open a tab"? lwdb ships a thin [Taur
 
 The desktop app is a thin Tauri window over the **installed core** — it doesn't bundle Node. On launch it starts the lwdb server (using the Node recorded in `~/.lwdb/launcher.json`) and stops it when you close the window. If a server is already running (e.g. you ran `lwdb serve`), it attaches to that one and leaves it running on close.
 
-**Prerequisites:** install the core first (`node install.mjs install`), plus the one-time Tauri toolchain (Rust + WebKitGTK):
+**Prerequisites:** install the core first (`npm run setup`), plus the one-time Tauri toolchain (Rust + WebKitGTK):
 
 ```bash
 # one-time toolchain (per machine): Rust + WebKitGTK
@@ -182,7 +182,7 @@ Override the Node binary or repo root the app uses with `LWDB_NODE=/path/to/node
 
 ```bash
 # Install lwdb for the user (Node ≥ 22.5 required):
-git clone <your-repo-url> lwdb && cd lwdb && node install.mjs install
+git clone <your-repo-url> lwdb && cd lwdb && npm run setup
 # Verify, then add connections:
 lwdb doctor
 lwdb conn-add --label="Local" --host=localhost --user=root   # or: lwdb import <file.json>
@@ -409,7 +409,7 @@ The SQL guard:
 **Desktop app shows "Could not connect to 127.0.0.1: Connection refused".**
 The app couldn't find a suitable Node (≥ 22.5) to start the server. Fix:
 
-1. Install/refresh the core with a modern Node: `node install.mjs install` (this writes `~/.lwdb/launcher.json`).
+1. Install/refresh the core with a modern Node: `npm run setup` (this writes `~/.lwdb/launcher.json`).
 2. Confirm: `lwdb doctor` shows "desktop launcher manifest ✓".
 3. Relaunch the app.
 
