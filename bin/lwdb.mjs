@@ -143,8 +143,12 @@ BACKUP / RESTORE
   restore <path>  [--merge]
 
 SYSTEM
-  doctor                            # diagnose the install (same as: node install.mjs doctor)
+  doctor                            # diagnose the install
+  update                            # git pull + reinstall deps + refresh skill
+  update-skill                      # refresh only the agent skill snapshot
+  uninstall                         # remove CLI link + skill symlinks
   agent-writes [on|off]             # show or set the master switch for CLI/agent writes
+  (first-time install: npm run setup  — or: node install.mjs install)
 
 OUTPUT
   --json        Force JSON (auto when not a TTY).
@@ -192,8 +196,24 @@ function pickParams(flags, reserved = new Set([
   return { params, ops };
 }
 
+// Lifecycle commands delegate to install.mjs (the single source of truth for
+// install/update/uninstall/skill/doctor) so users run `lwdb update` instead of
+// `node install.mjs update`. Runs without opening the SQLite registry.
+async function runInstaller(sub) {
+  const { spawnSync } = await import('node:child_process');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, resolve, join } = await import('node:path');
+  const here = dirname(fileURLToPath(import.meta.url));
+  const installScript = join(resolve(here, '..'), 'install.mjs');
+  const result = spawnSync(process.execPath, [installScript, sub], { stdio: 'inherit' });
+  process.exit(result.status ?? 0);
+}
+
+const INSTALLER_COMMANDS = new Set(['install', 'update', 'uninstall', 'update-skill', 'doctor']);
+
 async function main() {
   if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') { help(); return; }
+  if (INSTALLER_COMMANDS.has(cmd)) return runInstaller(cmd);
   const registry = await buildRegistry();
 
   switch (cmd) {
@@ -462,16 +482,6 @@ async function main() {
       break;
     }
 
-    case 'doctor': {
-      // Delegate to install.mjs in the repo root, two levels up from this bin.
-      const { spawnSync } = await import('node:child_process');
-      const { fileURLToPath } = await import('node:url');
-      const { dirname, resolve, join } = await import('node:path');
-      const here = dirname(fileURLToPath(import.meta.url));
-      const installScript = join(resolve(here, '..'), 'install.mjs');
-      const result = spawnSync(process.execPath, [installScript, 'doctor'], { stdio: 'inherit' });
-      process.exit(result.status ?? 0);
-    }
 
     case 'agent-writes': {
       const arg = (positional[0] || '').toLowerCase();

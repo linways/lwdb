@@ -35,6 +35,7 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "node --no-warnings=ExperimentalWarning server/index.mjs",
+    "setup": "node install.mjs install",
     "cli": "node bin/lwdb.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
