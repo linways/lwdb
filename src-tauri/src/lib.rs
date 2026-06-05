@@ -247,6 +247,9 @@ pub fn run() {
                 }
             }
 
+            // Open maximized (the config `maximized: true` may not apply while
+            // the window starts hidden, so enforce it before showing).
+            let _ = window.maximize();
             window.show()?;
             Ok(())
         })
