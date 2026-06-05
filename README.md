@@ -149,16 +149,31 @@ Prefer a real window over "run the server + open a tab"? lwdb ships a thin [Taur
 
 The desktop app is a thin Tauri window over the **installed core** — it doesn't bundle Node. On launch it starts the lwdb server (using the Node recorded in `~/.lwdb/launcher.json`) and stops it when you close the window. If a server is already running (e.g. you ran `lwdb serve`), it attaches to that one and leaves it running on close.
 
-**Prerequisites:** install the core first (`npm run setup`), plus the one-time Tauri toolchain (Rust + WebKitGTK):
+**In both cases you need the core installed** (`npm run setup`) — the desktop app runs the core's server and reads `~/.lwdb/launcher.json` to find Node.
+
+### Option A — download a release (no build)
+
+Grab the `.deb` (or `.rpm` / `.AppImage`) from the [**Releases page**](https://github.com/linways/lwdb/releases/latest):
 
 ```bash
-# one-time toolchain (per machine): Rust + WebKitGTK
+sudo dpkg -i lwdb_*_amd64.deb          # Debian/Ubuntu/Mint
+# sudo rpm -i lwdb-*.x86_64.rpm        # Fedora/RHEL
+# chmod +x lwdb_*_amd64.AppImage && ./lwdb_*_amd64.AppImage   # portable (needs libfuse2)
+```
+
+No Rust toolchain needed — just the core. Launch "lwdb" from your app menu; it opens maximized.
+
+### Option B — build from source
+
+One-time Tauri toolchain (Rust + WebKitGTK):
+
+```bash
 #   Rust:  https://rustup.rs   →  rustup default stable
 #   Linux: sudo apt install libwebkit2gtk-4.1-dev build-essential \
 #                           libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 ```
 
-**Build & install:**
+Then:
 
 ```bash
 npm run tauri:dev        # native window, HMR — for development
