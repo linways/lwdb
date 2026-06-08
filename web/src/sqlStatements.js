@@ -109,3 +109,15 @@ export function pickStatement(sql, { cursorOffset = 0, selFrom = null, selTo = n
   const idx = indexAtOffset(stmts, cursorOffset);
   return { sql: stmts[idx].text.trim(), kind: 'at-cursor', index: idx, total: stmts.length };
 }
+
+// A bare `USE <db>` statement: backticked (`` `my db` ``) or bare identifier,
+// optional trailing semicolon. Returns the database name, or null if the SQL
+// isn't exactly a single USE. The UI intercepts this to switch the active db
+// (and the header) instead of sending USE to a pooled connection — where it
+// wouldn't stick, since each query is routed to a pool keyed by the selected db.
+const USE_RE = /^\s*use\s+(?:`([^`]+)`|([A-Za-z0-9_$]+))\s*;?\s*$/i;
+export function parseUseStatement(sql) {
+  const m = USE_RE.exec(sql || '');
+  if (!m) return null;
+  return m[1] || m[2];
+}

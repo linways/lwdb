@@ -1,7 +1,7 @@
 import { reactive, computed, watch } from 'vue';
 import { api } from './api.js';
 import { loadPrefs, savePrefs, DEFAULT_PREFS } from './prefs.js';
-import { pickStatement } from './sqlStatements.js';
+import { pickStatement, parseUseStatement } from './sqlStatements.js';
 
 // localStorage-backed schema cache. Linways AMS schemas are nearly identical
 // across colleges, so once we've fetched a db's table/column map there's
@@ -287,6 +287,16 @@ export const actions = {
           selFrom: tab.selFrom,
           selTo: tab.selTo,
         });
+        // `USE <db>` won't stick on a pooled connection (each query is routed to
+        // a pool keyed by the selected db), so intercept it and switch the active
+        // db + header the same way the picker does.
+        const useDb = parseUseStatement(target.sql);
+        if (useDb) {
+          const match = store.databases.find((d) => d.toLowerCase() === useDb.toLowerCase()) || useDb;
+          await actions.selectDatabase(match);
+          toast(`Using database ${match}`, 'good');
+          return; // handled — don't send USE to MySQL
+        }
         result = await api.query({
           server: store.currentServer,
           db: store.currentDb,
