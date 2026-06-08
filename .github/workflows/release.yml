@@ -1,0 +1,71 @@
+name: Release (Tauri desktop)
+
+# Builds the desktop installers (.deb / .rpm / .AppImage) on a runner and
+# publishes them to a GitHub Release. Triggers:
+#   - pushing a version tag  (git tag v0.1.2 && git push origin v0.1.2)
+#   - manually from the Actions tab (provide the tag)
+#
+# Note: the desktop app is a thin shell over the Node core (it does not bundle
+# Node) — the produced installers still require `npm run setup` on the target.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build (e.g. v0.1.2) — manual runs only'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux build dependencies (WebKitGTK, etc.)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl wget file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build and publish the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # linuxdeploy needs FUSE to assemble the AppImage; extract-and-run
+          # avoids requiring FUSE on the runner.
+          APPIMAGE_EXTRACT_AND_RUN: '1'
+        with:
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: lwdb ${{ github.event.inputs.tag || github.ref_name }}
+          releaseBody: 'Desktop installers for this version. See CHANGELOG.md. The app requires the lwdb core installed (`npm run setup`).'
+          releaseDraft: false
+          prerelease: false
