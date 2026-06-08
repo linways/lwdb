@@ -25,6 +25,7 @@ let view = null;
 const sqlCompartment = new Compartment();
 const appearanceCompartment = new Compartment();
 const gutterCompartment = new Compartment();
+const themeCompartment = new Compartment();
 
 function buildAppearance() {
   const exts = [
@@ -38,6 +39,20 @@ function buildAppearance() {
 
 function buildGutter() {
   return store.prefs.showLineNumbers !== false ? [lineNumbers()] : [];
+}
+
+// Light surface theme (var-driven) for when oneDark is off. Dark uses oneDark.
+const lightEditorTheme = EditorView.theme({
+  '&': { backgroundColor: 'var(--bg-2)', color: 'var(--text)' },
+  '.cm-gutters': { backgroundColor: 'var(--bg-2)', color: 'var(--text-faint)', border: 'none' },
+  '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
+  '.cm-activeLine': { backgroundColor: 'var(--bg-3)' },
+  '.cm-activeLineGutter': { backgroundColor: 'var(--bg-3)' },
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--bg-hover)' },
+}, { dark: false });
+
+function editorThemeFor(mode) {
+  return mode === 'dark' ? [oneDark] : [lightEditorTheme];
 }
 
 // A small wrapper that always reads the *live* store.schema each time the
@@ -94,7 +109,7 @@ onMounted(() => {
       // reconfigured (with fresh schema) whenever the active db changes.
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       sqlCompartment.of(buildSqlExtension()),
-      oneDark,
+      themeCompartment.of(editorThemeFor(store.themeMode)),
       appearanceCompartment.of(buildAppearance()),
       // Our run-query binding goes first — defaultKeymap binds Mod-Enter to
       // insertBlankLine and the first match wins inside a single keymap.of().
@@ -154,6 +169,14 @@ watch(
   () => {
     if (!view) return;
     view.dispatch({ effects: sqlCompartment.reconfigure(buildSqlExtension()) });
+  },
+);
+
+watch(
+  () => store.themeMode,
+  (mode) => {
+    if (!view) return;
+    view.dispatch({ effects: themeCompartment.reconfigure(editorThemeFor(mode)) });
   },
 );
 
