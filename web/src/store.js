@@ -244,6 +244,7 @@ export const actions = {
   /** Reset all user prefs to defaults. */
   resetPrefs() {
     Object.assign(store.prefs, DEFAULT_PREFS);
+    store.themeMode = applyTheme(store.prefs.theme); // re-apply — theme is a pref too
     toast('Settings reset to defaults', 'good');
   },
 
