@@ -10,6 +10,7 @@ export const DEFAULT_PREFS = Object.freeze({
   defaultLimit: 500,             // implicit LIMIT applied to bare SELECTs
   confirmDestructive: true,      // confirm() before delete-snippet etc.
   writeUnlockedByDefault: false, // start sessions with writes off
+  theme: 'auto',                 // 'auto' (follow OS) | 'dark' | 'light'
 
   // Editor
   editorFontSize: 13,            // px
