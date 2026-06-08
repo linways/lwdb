@@ -2,6 +2,8 @@ import { reactive, computed, watch } from 'vue';
 import { api } from './api.js';
 import { loadPrefs, savePrefs, DEFAULT_PREFS } from './prefs.js';
 import { pickStatement, parseUseStatement } from './sqlStatements.js';
+import { THEME_PREFS, resolveTheme } from './themes.js';
+import { applyTheme, systemPrefersDark, watchSystemTheme } from './theme.js';
 
 // localStorage-backed schema cache. Linways AMS schemas are nearly identical
 // across colleges, so once we've fetched a db's table/column map there's
@@ -66,7 +68,11 @@ export const store = reactive({
   toast: null,
   connectionsOpen: false,
   prefs: { ...initialPrefs },
+  themeMode: resolveTheme(initialPrefs.theme, systemPrefersDark()), // 'dark' | 'light'
 });
+
+// Apply the saved theme to <html> as early as possible (before first paint).
+store.themeMode = applyTheme(store.prefs.theme);
 
 // Persist prefs whenever they change.
 watch(() => ({ ...store.prefs }), (val) => savePrefs(val), { deep: true });
@@ -99,6 +105,7 @@ export const actions = {
   toast,
 
   async init() {
+    watchSystemTheme(() => { if (store.prefs.theme === 'auto') store.themeMode = applyTheme('auto'); });
     try {
       const { servers } = await api.servers();
       store.servers = servers;
@@ -224,6 +231,14 @@ export const actions = {
     } finally {
       store.loadingSchema = false;
     }
+  },
+
+  /** Set the theme pref ('auto' | 'dark' | 'light'), persist, and apply. */
+  setTheme(pref) {
+    const next = THEME_PREFS.includes(pref) ? pref : 'auto';
+    store.prefs.theme = next;            // persisted by the prefs watcher
+    store.themeMode = applyTheme(next);  // updates <html> data-theme
+    toast(`Theme: ${next}`, 'good');
   },
 
   /** Reset all user prefs to defaults. */
