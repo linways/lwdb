@@ -134,6 +134,26 @@ function resetAll() {
           <!-- GENERAL -->
           <section v-if="active === 'general'">
             <div class="row">
+              <label>Theme</label>
+              <select
+                :value="store.prefs.theme"
+                @change="actions.setTheme($event.target.value)"
+              >
+                <option value="auto">
+                  Auto (follow OS)
+                </option>
+                <option value="dark">
+                  Dark
+                </option>
+                <option value="light">
+                  Light
+                </option>
+              </select>
+              <p class="hint">
+                Auto follows your operating system's light/dark setting.
+              </p>
+            </div>
+            <div class="row">
               <label>Default SELECT LIMIT</label>
               <input
                 v-model.number="prefs.defaultLimit"

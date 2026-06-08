@@ -15,6 +15,10 @@ const kbdMeta = isMac ? '⌘' : 'Ctrl';
 function toggleWritable() {
   store.writable = !store.writable;
 }
+
+function toggleTheme() {
+  actions.setTheme(store.themeMode === 'dark' ? 'light' : 'dark');
+}
 </script>
 
 <template>
@@ -97,6 +101,13 @@ function toggleWritable() {
     >
       <span>search</span>
       <span class="kbd">{{ kbdMeta }}K</span>
+    </button>
+    <button
+      class="chip theme-toggle"
+      :title="`Theme: ${store.themeMode} (click to toggle)`"
+      @click="toggleTheme"
+    >
+      {{ store.themeMode === 'dark' ? '☾' : '☀' }}
     </button>
     <button
       class="btn ghost gear-btn"

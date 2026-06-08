@@ -76,6 +76,9 @@ const actionsList = computed(() => fuzzyFilter([
   { id: 'clear-history', label: 'Clear query history', sub: 'Wipe local history (irreversible)', run: async () => { if (!confirm('Clear all query history?')) return; await fetch('/api/history', { method: 'DELETE' }); actions.toast('History cleared'); emit('close'); } },
   { id: 'add-connection', label: '+ Add connection', sub: 'Open the Connections manager', run: () => { actions.openConnections(); emit('close'); } },
   { id: 'open-settings', label: 'Open settings', sub: 'Editor, results, data, about', run: () => { emit('open-settings'); emit('close'); } },
+  { id: 'theme-auto', label: 'Theme: Auto', sub: 'Follow the OS light/dark setting', run: () => { actions.setTheme('auto'); emit('close'); } },
+  { id: 'theme-dark', label: 'Theme: Dark', sub: 'Use the dark theme', run: () => { actions.setTheme('dark'); emit('close'); } },
+  { id: 'theme-light', label: 'Theme: Light', sub: 'Use the light theme', run: () => { actions.setTheme('light'); emit('close'); } },
   { id: 'refresh-schema', label: 'Refresh schema (current db)', sub: 'Re-fetch table/column completions for the active db', run: async () => { await actions.refreshSchema(); emit('close'); } },
   { id: 'clear-schema-cache', label: 'Clear all cached schemas', sub: 'Force every db to re-fetch on next pick', run: () => { actions.clearSchemaCache(); emit('close'); } },
 ], (a) => `${a.label} ${a.sub}`));
