@@ -26,7 +26,9 @@ const fail = (msg) => { console.error(`✗ ${msg}`); process.exit(1); };
 // Releases are cut from a clean, in-sync main.
 const branch = sh('git rev-parse --abbrev-ref HEAD');
 if (branch !== 'main') fail(`on '${branch}', not main — releases are cut from main (git checkout main).`);
-if (sh('git status --porcelain')) fail('working tree is not clean — commit or stash first.');
+// Ignore untracked files — they aren't part of the tagged commit. Only block
+// on uncommitted changes to tracked files.
+if (sh('git status --porcelain --untracked-files=no')) fail('tracked files have uncommitted changes — commit or stash first.');
 sh('git fetch --tags --quiet origin');
 const local = sh('git rev-parse @');
 const upstream = shq('git rev-parse @{u}');
