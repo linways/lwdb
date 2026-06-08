@@ -47,6 +47,24 @@ const liveSchemaRef = {
   get value() { return store.schema; },
 };
 
+// Wrap a completion source so accepting any option inserts a trailing space —
+// so after picking SELECT / WHERE / LIKE / a table / a column you can keep
+// typing immediately (e.g. "SELECT " then columns, "FROM students " then WHERE).
+// Options with a custom function `apply` are left untouched.
+function withTrailingSpace(source) {
+  return async (context) => {
+    const result = await source(context);
+    if (!result || !result.options) return result;
+    return {
+      ...result,
+      options: result.options.map((o) =>
+        (typeof o.apply === 'function'
+          ? o
+          : { ...o, apply: `${o.apply ?? o.label} ` })),
+    };
+  };
+}
+
 function buildSqlExtension() {
   const schema = store.schema?.tables || {};
   const upper = !!store.prefs.uppercaseKeywords;
@@ -54,9 +72,9 @@ function buildSqlExtension() {
     sql({ dialect: MySQL, schema, upperCaseKeywords: upper }),
     autocompletion({
       override: [
-        fromAwareColumnSource(liveSchemaRef),
-        schemaCompletionSource({ dialect: MySQL, schema, upperCaseKeywords: upper }),
-        keywordCompletionSource(MySQL, upper),
+        withTrailingSpace(fromAwareColumnSource(liveSchemaRef)),
+        withTrailingSpace(schemaCompletionSource({ dialect: MySQL, schema, upperCaseKeywords: upper })),
+        withTrailingSpace(keywordCompletionSource(MySQL, upper)),
       ],
     }),
   ];
