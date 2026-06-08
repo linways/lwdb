@@ -342,9 +342,11 @@ data/                           # everything lwdb owns lives here (gitignored)
 
 ## 🧪 Development
 
+> Full contributor reference — architecture, testing, the branch/PR + release flow, desktop build, and gotchas — lives in **[`docs/DEVELOPMENT.md`](./docs/DEVELOPMENT.md)**.
+
 ```bash
-npm run dev                    # vite (5173) + fastify (4321) with --watch
-npm test                       # node:test, 46 unit tests, no extra runner
+npm run dev                    # vite (5174) + fastify (4321) with --watch
+npm test                       # node:test unit suites, no extra runner
 npm run lint
 npm run format
 npm run build                  # vite production build
