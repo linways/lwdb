@@ -187,6 +187,13 @@ npm run desktop:rebuild  # desktop:clean + desktop:build
 Override the Node binary or repo root the app uses with `LWDB_NODE=/path/to/node` and `LWDB_REPO=/path/to/lwdb`.
 
 > [!NOTE]
+> **Releases are automated.** Bump the version (`package.json` + `src-tauri/tauri.conf.json` + `Cargo.toml`), then push a tag — GitHub Actions ([`.github/workflows/release.yml`](./.github/workflows/release.yml)) builds the `.deb`/`.rpm`/`.AppImage` and publishes the release:
+> ```bash
+> git tag v0.1.2 && git push origin v0.1.2
+> ```
+> (Or run it manually from the Actions tab with a tag. Local `npm run desktop:build` still works for one-off builds.)
+
+> [!NOTE]
 > The desktop app is just a nicer wrapper around the **human** UI. **AI agents don't need it** — they use the `lwdb` CLI, which is fully headless and needs no server or window (see below).
 
 ---
