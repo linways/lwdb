@@ -2,6 +2,17 @@
 
 All notable changes to **lwdb** are documented here. This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-06-08
+
+### Added
+
+- **Trailing space after accepting a completion.** Picking a suggested keyword / table / column now inserts a space, so you can keep typing immediately (`SELECT `, `FROM students `, `WHERE id `).
+- **`USE <db>` switches the active database.** Running a bare `USE <db>` now re-points lwdb's active db and the header (the same path as the picker) instead of being sent to a pooled connection where it wouldn't stick.
+
+### Changed
+
+- **Automated releases.** Pushing a `vX.Y.Z` tag builds the `.deb`/`.rpm`/`.AppImage` on GitHub Actions and publishes the release ([`.github/workflows/release.yml`](./.github/workflows/release.yml)).
+
 ## [0.1.1] — 2026-06-05
 
 ### Added
