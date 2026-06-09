@@ -21,7 +21,7 @@ A lightweight MySQL browser and CLI for engineers who manage many databases acro
 
 ```bash
 # 1. Install the core (CLI + server). Needs Node ≥ 22.5.
-git clone <your-repo-url> lwdb && cd lwdb
+git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
 npm run setup
 
 # 2. Add a connection (or import many — see connections.example.json)
@@ -61,7 +61,7 @@ lwdb installs in two layers — install the core; the desktop app is optional.
 Needs **Node ≥ 22.5** (for built-in `node:sqlite`).
 
 ```bash
-git clone <your-repo-url> lwdb && cd lwdb
+git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
 npm run setup
 ```
 
@@ -128,7 +128,7 @@ To wipe data too: `rm -rf ~/.lwdb data/` afterward.
 <summary>Manual install (without the installer script)</summary>
 
 ```bash
-git clone <your-repo-url> lwdb && cd lwdb
+git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
 npm install
 npm link                       # puts `lwdb` on $PATH
 ```
@@ -206,7 +206,7 @@ Override the Node binary or repo root the app uses with `LWDB_NODE=/path/to/node
 
 ```bash
 # Install lwdb for the user (Node ≥ 22.5 required):
-git clone <your-repo-url> lwdb && cd lwdb && npm run setup
+git clone https://github.com/linways/lwdb.git lwdb && cd lwdb && npm run setup
 # Verify, then add connections:
 lwdb doctor
 lwdb conn-add --label="Local" --host=localhost --user=root   # or: lwdb import <file.json>
