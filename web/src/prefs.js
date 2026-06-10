@@ -11,6 +11,7 @@ export const DEFAULT_PREFS = Object.freeze({
   confirmDestructive: true,      // confirm() before delete-snippet etc.
   writeUnlockedByDefault: false, // start sessions with writes off
   theme: 'auto',                 // 'auto' (follow OS) | 'dark' | 'light'
+  uiDensity: 'compact',          // 'compact' (default) | 'comfortable' | 'large' — scales the whole UI
 
   // Editor
   editorFontSize: 13,            // px

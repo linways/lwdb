@@ -90,7 +90,13 @@ const groups = computed(() => {
     return g;
   }
   if (mode.value === 'pickDb') {
-    if (databases.value.length) g.push({ title: `Databases on ${store.currentServer}`, items: databases.value.map((d) => ({ kind: 'db', name: d })) });
+    // "Recently used" — last few dbs picked on this server, but only those that
+    // still exist in the current db list. Surfaced above the full list.
+    const recentExisting = (store.recentDbs[store.currentServer] || []).filter((d) => store.databases.includes(d));
+    const recentFiltered = fuzzyFilter(recentExisting, (d) => d);
+    if (recentFiltered.length) g.push({ title: 'Recently used', items: recentFiltered.map((d) => ({ kind: 'db', name: d, recent: true })) });
+    const rest = databases.value.filter((d) => !recentExisting.includes(d));
+    if (rest.length) g.push({ title: `Databases on ${store.currentServer}`, items: rest.map((d) => ({ kind: 'db', name: d })) });
     return g;
   }
   if (snippets.value.length) g.push({ title: 'Saved queries', items: snippets.value.map((s) => ({ kind: 'snippet', ...s })) });
@@ -233,7 +239,7 @@ watch(() => store.tables, (v) => { tablesCache.value = v; });
           >
             <span class="icon">
               <span v-if="item.kind === 'server'">⊙</span>
-              <span v-else-if="item.kind === 'db'">▣</span>
+              <span v-else-if="item.kind === 'db'">{{ item.recent ? '↺' : '▣' }}</span>
               <span v-else-if="item.kind === 'table'">≡</span>
               <span v-else-if="item.kind === 'snippet'">★</span>
               <span v-else-if="item.kind === 'recent'">↺</span>
@@ -251,10 +257,6 @@ watch(() => store.tables, (v) => { tablesCache.value = v; });
             <span v-else-if="item.kind === 'snippet'">{{ item.name }}<span class="sub">{{ item.description }}</span></span>
             <span v-else-if="item.kind === 'recent'"><code style="font-family: var(--font-mono); font-size: 11.5px; color: var(--text-dim);">{{ item.sql.slice(0, 80) }}{{ item.sql.length > 80 ? '…' : '' }}</code></span>
             <span v-else>{{ item.label }}<span class="sub">{{ item.sub }}</span></span>
-            <span class="meta">
-              <span v-if="item.kind === 'snippet' && item.params?.length">:{{ item.params.join(' :') }}</span>
-              <span v-else-if="item.kind === 'recent'">{{ item.server }}/{{ item.db || '' }}</span>
-            </span>
             <button
               v-if="copyTextFor(item)"
               class="copy-btn"
@@ -263,6 +265,10 @@ watch(() => store.tables, (v) => { tablesCache.value = v; });
             >
               ⧉
             </button>
+            <span class="meta">
+              <span v-if="item.kind === 'snippet' && item.params?.length">:{{ item.params.join(' :') }}</span>
+              <span v-else-if="item.kind === 'recent'">{{ item.server }}/{{ item.db || '' }}</span>
+            </span>
           </div>
         </template>
         <div

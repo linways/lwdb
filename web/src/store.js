@@ -26,6 +26,25 @@ function writeSchemaCache(server, db, schema) {
   catch (_) { /* quota exceeded — ignore, schema just won't be cached */ }
 }
 
+// Recently-used databases, most-recent-first, capped per server. Stored in
+// localStorage so the db picker can surface "Recently used" across reloads.
+const RECENT_DBS_MAX = 5;
+const VALID_DENSITY = ['compact', 'comfortable', 'large'];
+function recentDbsKey(server) { return `lwdb:recentDbs:${server}`; }
+function readRecentDbs(server) {
+  try {
+    const list = JSON.parse(localStorage.getItem(recentDbsKey(server)) || '[]');
+    return Array.isArray(list) ? list : [];
+  } catch (_) { return []; }
+}
+
+// Set `data-density` on <html>; only 'comfortable'/'large' trigger the zoom in CSS.
+function applyDensity(pref) {
+  const d = VALID_DENSITY.includes(pref) ? pref : 'compact';
+  document.documentElement.setAttribute('data-density', d);
+  return d;
+}
+
 let tabSeq = 1;
 function blankTab() {
   const id = tabSeq++;
@@ -54,6 +73,7 @@ export const store = reactive({
   currentServer: null,
   databases: [],
   currentDb: null,
+  recentDbs: {},            // { [serverId]: [db, ...] } most-recent-first, max RECENT_DBS_MAX
   tables: [],
   tableFilter: '',
   schema: { tables: {}, columnCount: 0, fetchedAt: null }, // { tableName: [col, ...] } for the active (server, db)
@@ -71,8 +91,17 @@ export const store = reactive({
   themeMode: resolveTheme(initialPrefs.theme, systemPrefersDark()), // 'dark' | 'light'
 });
 
-// Apply the saved theme to <html> as early as possible (before first paint).
+// Apply the saved theme + density to <html> as early as possible (before first paint).
 store.themeMode = applyTheme(store.prefs.theme);
+applyDensity(store.prefs.uiDensity);
+
+/** Record `db` as the most-recently-used on `server` (deduped, capped). */
+function pushRecentDb(server, db) {
+  if (!server || !db) return;
+  const list = [db, ...readRecentDbs(server).filter((d) => d !== db)].slice(0, RECENT_DBS_MAX);
+  try { localStorage.setItem(recentDbsKey(server), JSON.stringify(list)); } catch (_) { /* quota — ignore */ }
+  store.recentDbs[server] = list;
+}
 
 // Persist prefs whenever they change.
 watch(() => ({ ...store.prefs }), (val) => savePrefs(val), { deep: true });
@@ -124,6 +153,7 @@ export const actions = {
     store.databases = [];
     store.tables = [];
     localStorage.setItem('lwdb:lastServer', id);
+    store.recentDbs[id] = readRecentDbs(id);
     if (!id) return;
     store.loadingDbs = true;
     try {
@@ -145,6 +175,7 @@ export const actions = {
     store.schema = { tables: {}, columnCount: 0, fetchedAt: null, cached: false };
     if (!db) return;
     localStorage.setItem(`lwdb:lastDb:${store.currentServer}`, db);
+    pushRecentDb(store.currentServer, db);
 
     // Schema: hit the localStorage cache if we have one — schemas are nearly
     // identical across colleges and rarely change, so don't re-fetch.
@@ -241,10 +272,19 @@ export const actions = {
     toast(`Theme: ${next}`, 'good');
   },
 
+  /** Set the UI density pref ('compact' | 'comfortable' | 'large'), persist, and apply. */
+  setDensity(pref) {
+    const next = VALID_DENSITY.includes(pref) ? pref : 'compact';
+    store.prefs.uiDensity = next; // persisted by the prefs watcher
+    applyDensity(next);           // updates <html> data-density
+    toast(`Interface: ${next}`, 'good');
+  },
+
   /** Reset all user prefs to defaults. */
   resetPrefs() {
     Object.assign(store.prefs, DEFAULT_PREFS);
     store.themeMode = applyTheme(store.prefs.theme); // re-apply — theme is a pref too
+    applyDensity(store.prefs.uiDensity);             // density is a pref too
     toast('Settings reset to defaults', 'good');
   },
 
