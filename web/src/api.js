@@ -36,4 +36,6 @@ export const api = {
   testConnection: (body) => req('/connections/test', { method: 'POST', body }),
   importConnections: (doc) => req('/connections/import', { method: 'POST', body: doc }),
   exportConnections: () => req('/connections/export'),
+  approvals: () => req('/approvals'),
+  resolveApproval: (id, decision) => req(`/approvals/${encodeURIComponent(id)}/resolve`, { method: 'POST', body: { decision } }),
 };
