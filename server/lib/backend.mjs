@@ -59,6 +59,30 @@ export function createLocalBackend(registry, { actor = 'cli' } = {}) {
 }
 
 /**
+ * Request human approval for one write and wait until a person resolves it in a
+ * connected client (desktop app / browser). Returns the terminal approval object
+ * (status approved|denied|error), or a synthetic 'timeout' if nobody answered in
+ * time. Requires a daemon backend — the approval queue lives in that process.
+ */
+export async function awaitApproval(backend, { server, db, sql }, { timeoutMs = 120_000, pollMs = 1000, onPending } = {}) {
+  if (typeof backend.requestApproval !== 'function') {
+    const err = new Error('Interactive approval needs a running lwdb server (desktop app or `lwdb serve`).');
+    err.code = 'NO_DAEMON';
+    throw err;
+  }
+  const approval = await backend.requestApproval({ server, db, sql });
+  if (onPending) onPending(approval);
+  const deadline = Date.now() + timeoutMs;
+  let current = approval;
+  while (current.status === 'pending') {
+    if (Date.now() > deadline) return { ...current, status: 'timeout' };
+    await new Promise((r) => setTimeout(r, pollMs));
+    current = await backend.getApproval(approval.id);
+  }
+  return current;
+}
+
+/**
  * Pick a backend. When `allowDaemon` and a healthy lwdb server is listening,
  * forward to it; otherwise open a local registry. Returns `{ backend, registry }`
  * — `registry` is null for the daemon path (the caller never opened SQLite).

@@ -109,14 +109,28 @@ export function buildLwdbTools(backend) {
     },
     {
       name: 'run_query',
-      description: 'Run one SQL statement. Read-only by default (SELECT/SHOW/DESCRIBE/EXPLAIN). Writes require the human-set "Allow agent writes" preference AND writable=true; otherwise the call returns a stable error code (AGENT_WRITES_DISABLED or CONFIRM_REQUIRED). Bare SELECTs are auto-limited.',
+      description: 'Run one SQL statement. Read-only by default (SELECT/SHOW/DESCRIBE/EXPLAIN). For a write, either set writable=true (needs the human-set "Allow agent writes" preference) OR set await_approval=true to have a human approve THIS exact statement live in the lwdb app (needs a running server; no global switch required). Bare SELECTs are auto-limited.',
       inputSchema: S({
         server: str('Server id'), db: str('Database (optional)'), sql: str('A single SQL statement'),
         limit: int('Row limit for SELECT (default 500, max 5000)'),
-        writable: { type: 'boolean', description: 'Confirm a write after the user approves it' },
+        writable: { type: 'boolean', description: 'Confirm a write (with the global agent-writes switch on)' },
+        await_approval: { type: 'boolean', description: 'Wait for a human to approve this exact write in the lwdb app (per-write consent; alternative to the global switch)' },
       }, ['server', 'sql']),
-      handler: async ({ server, db, sql, limit, writable }) =>
-        backend.runQuery({ server, db: db || null, sql, limit, writable: await resolveWritable(sql, writable, backend) }),
+      handler: async ({ server, db, sql, limit, writable, await_approval }) => {
+        if (await_approval) {
+          let info;
+          try { info = inspectSql(sql); } catch { info = null; }
+          if (!info || !info.allReadOnly) {
+            const { awaitApproval } = await import('./lib/backend.mjs');
+            const final = await awaitApproval(backend, { server, db: db || null, sql });
+            if (final.status === 'approved') return final.result;
+            if (final.status === 'denied') throw appError(Codes.CONFIRM_REQUIRED, 'Write denied by the user.');
+            if (final.status === 'timeout') throw appError(Codes.TIMEOUT, 'Approval timed out — nobody responded.');
+            throw appError(final.error?.code || Codes.DB_ERROR, final.error?.message || 'Approval failed');
+          }
+        }
+        return backend.runQuery({ server, db: db || null, sql, limit, writable: await resolveWritable(sql, writable, backend) });
+      },
     },
     {
       name: 'list_snippets',

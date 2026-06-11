@@ -293,6 +293,43 @@ app.delete('/api/annotations', asyncRoute(async (req) => {
   return { ok: true };
 }));
 
+// ---------- interactive write approvals ----------
+
+// An agent requests approval for one specific write; a human approves THAT exact
+// SQL (in the desktop app or any client), and it executes server-side once.
+app.post('/api/approvals', asyncRoute(async (req) => {
+  const body = ensureObject(req.body, 'body');
+  required(body, ['server', 'sql']);
+  ensureString(body.sql, 'sql');
+  registry.getConnection(body.server); // 404 early if the server is unknown
+  return { approval: registry.approvals.create({ server: body.server, db: body.db || null, sql: body.sql }) };
+}));
+
+app.get('/api/approvals', async () => ({ approvals: registry.approvals.list() }));
+
+app.get('/api/approvals/:id', asyncRoute(async (req) => {
+  const approval = registry.approvals.get(req.params.id);
+  if (!approval) throw appError(Codes.NOT_FOUND, 'Approval not found');
+  return { approval };
+}));
+
+app.post('/api/approvals/:id/resolve', asyncRoute(async (req) => {
+  const body = ensureObject(req.body || {}, 'body');
+  const decision = body.decision;
+  // On approve the write runs through the normal chokepoint: writable=true, but
+  // a write-protected connection still refuses (READONLY_BLOCKED) inside runQuery.
+  const runner = (item) => runQuery({
+    connection: registry.getConnection(item.server),
+    db: item.db,
+    sql: item.sql,
+    writable: true,
+    history: registry.history,
+    actor: 'approved',
+    config: registry.config,
+  });
+  return { approval: await registry.approvals.resolve(req.params.id, decision, runner) };
+}));
+
 // ---------- backup / restore ----------
 
 app.post('/api/backup', asyncRoute(async (req) => {
