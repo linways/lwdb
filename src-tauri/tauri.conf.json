@@ -3,7 +3,7 @@
   "productName": "lwdb",
   "mainBinaryName": "lwdb-desktop",
   "version": "0.1.2",
-  "identifier": "com.linways.lwdb",
+  "identifier": "com.sibincbaby.lwdb",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5174",

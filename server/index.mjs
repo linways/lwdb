@@ -20,6 +20,7 @@ import {
   backupSqlite, backupJson, restoreJson, defaultBackupPath,
 } from './lib/backup.mjs';
 import { appError, Codes, statusForCode } from './lib/errors.mjs';
+import { isAuthorized } from './lib/auth.mjs';
 import { child } from './lib/log.mjs';
 import {
   required, ensureString, ensureArray, ensureObject, clampInt,
@@ -33,6 +34,16 @@ const app = Fastify({
   disableRequestLogging: true,
   genReqId: () => randomUUID(),
 });
+
+// Optional API token: when LW_DB_TOKEN is set, every request must present it
+// (Bearer header, or ?token= for browser first-load). Off by default.
+if (registry.config.token) {
+  app.addHook('onRequest', (req, reply, done) => {
+    if (isAuthorized(req, registry.config.token)) { done(); return; }
+    reply.code(401).send({ error: { code: Codes.UNAUTHORIZED, message: 'Missing or invalid API token.' } });
+  });
+  log.warn('api token required', {});
+}
 
 app.addHook('onResponse', (req, reply, done) => {
   log.info('req', {

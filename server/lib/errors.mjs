@@ -11,6 +11,7 @@ export const Codes = {
   READONLY_BLOCKED: 'READONLY_BLOCKED',
   AGENT_WRITES_DISABLED: 'AGENT_WRITES_DISABLED',
   CONFIRM_REQUIRED: 'CONFIRM_REQUIRED',
+  UNAUTHORIZED: 'UNAUTHORIZED',
   UNKNOWN_SERVER: 'UNKNOWN_SERVER',
   NOT_FOUND: 'NOT_FOUND',
   BAD_BACKUP: 'BAD_BACKUP',
@@ -34,6 +35,7 @@ export function statusForCode(code) {
     case Codes.READONLY_BLOCKED:
     case Codes.AGENT_WRITES_DISABLED:
     case Codes.CONFIRM_REQUIRED: return 403;
+    case Codes.UNAUTHORIZED: return 401;
     case Codes.UNKNOWN_SERVER:
     case Codes.NOT_FOUND: return 404;
     case Codes.BAD_REQUEST:

@@ -1,11 +1,11 @@
 ---
 name: lwdb
-description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, run read-only queries, persist parametrized SQL templates, and manage DB connection entries. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through lwdb's own SQLite connection store so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, add/edit/test a connection, or look up history across the V3/V4/local MySQL servers.
+description: Use the lwdb CLI to explore one or more MySQL servers, run read-only queries, persist parametrized SQL templates, and manage DB connection entries. Every command emits JSON when not a TTY, uses stable error codes, never prompts in non-TTY contexts, and connects through lwdb's own SQLite connection store so the agent never handles credentials. Activates whenever the user asks to find a database, inspect a table's columns, run a SQL query, save a reusable query template, add/edit/test a connection, or look up history across the configured MySQL servers.
 ---
 
-# lwdb — Linways DB CLI for AI agents
+# lwdb — agent-first MySQL CLI
 
-`lwdb` is the command-line surface of [lwdb](https://github.com/linways/lwdb) — a lightweight DB browser used at Linways to work across the V3 server, multiple V4 servers, and localhost. It shares one library with the web UI; anything you can do in the UI is reachable from `lwdb`.
+`lwdb` is the command-line surface of [lwdb](https://github.com/sibincbaby/lwdb) — a lightweight MySQL workbench for managing many databases across several servers. It shares one library with the desktop/web UI; anything you can do in the UI is reachable from `lwdb`.
 
 **Every command:**
 
@@ -58,7 +58,7 @@ If install fails (e.g., Node < 22.5, npm not on PATH, port conflicts), surface t
 
 ## Discovery
 
-Always start here. You usually do **not** know which server holds the user's college DB.
+Always start here. You usually do **not** know which server holds the database the user means.
 
 ```bash
 # Every configured server (sanitized — no passwords).
@@ -66,17 +66,17 @@ lwdb servers --json
 
 # List databases on a server. `pattern` is a substring filter.
 # Add --latest to sort lexicographically descending — useful for
-# date-suffixed db names like test_stthomas_db2104, test_stthomas_db2105.
-lwdb dbs V4-server84 stthomas --latest --json
+# date-suffixed db names like app_production, app_staging.
+lwdb dbs prod app --latest --json
 
 # Find a table across every db on a server (slow, but pre-narrows for you).
-lwdb find-table V4-server84 students --json
+lwdb find-table prod students --json
 
 # Tables in a specific db (cheap).
-lwdb tables V4-server84 test_stthomas_db2104 --json
+lwdb tables prod app_production --json
 
 # Full column metadata for one table.
-lwdb describe V4-server84 test_stthomas_db2104 students --json
+lwdb describe prod app_production students --json
 ```
 
 ### The bulk schema fetch (essential before generating SQL)
@@ -96,7 +96,7 @@ Returns:
 }
 ```
 
-**Before generating any non-trivial query, run `schema` for the target db.** Don't guess column names — the Linways schema varies between college DBs, and PK column names too (sometimes `id`, sometimes `studentID`, etc.).
+**Before generating any non-trivial query, run `schema` for the target db.** Don't guess column names — schemas vary between databases, and PK column names too (sometimes `id`, sometimes `studentID`, etc.).
 
 ### The context brief (richer than `schema` — prefer it when you need to understand a db)
 
@@ -131,10 +131,10 @@ lwdb profile <server> <db> <table> --columns=status,type --json   # just these c
 When you (or the user) work out what a cryptic table or column means, persist it — it gets merged into every future `context` call:
 
 ```bash
-lwdb annotate V4-server84 test_stthomas_db2104 students --note="one row per enrolled student" --source=agent --json
-lwdb annotate V4-server84 test_stthomas_db2104 students status --note="1=active 2=archived" --source=agent --json
-lwdb annotations V4-server84 test_stthomas_db2104 --json     # list
-lwdb annotate  V4-server84 test_stthomas_db2104 students --rm  # delete
+lwdb annotate prod app_production students --note="one row per enrolled student" --source=agent --json
+lwdb annotate prod app_production students status --note="1=active 2=archived" --source=agent --json
+lwdb annotations prod app_production --json     # list
+lwdb annotate  prod app_production students --rm  # delete
 ```
 
 Notes live in lwdb's SQLite store (local, per-target). Tag agent-authored notes with `--source=agent` so humans can tell them apart.
@@ -152,7 +152,7 @@ lwdb query <server> [db] "<sql>" [--limit=N] [--yes] [--json]
 
 ```bash
 # Read — always allowed
-lwdb query V4-server84 test_stthomas_db2104 "SELECT id, name FROM students LIMIT 5" --json
+lwdb query prod app_production "SELECT id, name FROM students LIMIT 5" --json
 ```
 
 ### Writes (INSERT / UPDATE / DELETE / DDL)
@@ -166,7 +166,7 @@ Two gates, both required:
 lwdb agent-writes                      # → {"agentWrites": false|true}
 # (the human turns it on in Settings, or:)  lwdb agent-writes on
 
-lwdb query V4-server84 test_stthomas_db2104 \
+lwdb query prod app_production \
   "UPDATE students SET status='archived' WHERE id=42" --yes --json
 ```
 
@@ -177,7 +177,7 @@ If writes are off you get `AGENT_WRITES_DISABLED`; if on but you didn't pass `--
 Instead of the global switch + `--yes`, you can ask the human to approve **one specific write live in the lwdb app**:
 
 ```bash
-lwdb query V4-server84 some_db "UPDATE students SET status='archived' WHERE id=42" --approve --json
+lwdb query prod some_db "UPDATE students SET status='archived' WHERE id=42" --approve --json
 ```
 
 This needs a running lwdb server (the desktop app or `lwdb serve`). The command **blocks** while a pending approval shows the exact SQL in the app; when the human clicks **Approve & run**, the write executes server-side and the command returns the result. If they click **Deny** you get `CONFIRM_REQUIRED`; if nobody answers within the timeout (default 120s, `--timeout=SEC`) you get `TIMEOUT`; with no server running you get `NO_DAEMON`. Write-protected connections still refuse (`READONLY_BLOCKED`). Use `--approve` when you'd otherwise be blocked by `AGENT_WRITES_DISABLED` and the user is at their machine — it's safer than asking them to flip the global switch. (MCP: set `await_approval: true` on `run_query`.)
@@ -187,7 +187,7 @@ This needs a running lwdb server (the desktop app or `lwdb serve`). The command 
 MySQL reserves words like `groups`, `order`, `interval`. Wrap them in backticks:
 
 ```bash
-lwdb query V4-server84 some_db 'SELECT * FROM `groups` LIMIT 10'
+lwdb query prod some_db 'SELECT * FROM `groups` LIMIT 10'
 ```
 
 The CLI preserves backticks and string literals verbatim — pass them through.
@@ -207,11 +207,11 @@ lwdb schema-snippets
 lwdb save student-by-id "SELECT * FROM students WHERE student_id = :id" \
   --description="Look up a student by id" \
   --tags=students \
-  --default-server=V4-server84 \
+  --default-server=prod \
   --json
 
 # Run by name or id, supplying params with --paramName=value
-lwdb run student-by-id --id=12345 --db=test_stthomas_db2104 --json
+lwdb run student-by-id --id=12345 --db=app_production --json
 
 # Per-parameter operator: switch a comparison from = to LIKE etc. at run time
 # without editing the snippet. Use this when an exact-match snippet would
@@ -243,7 +243,7 @@ cat << 'EOF' | lwdb push --json
     "description": "Look up a student by ID",
     "sql": "SELECT * FROM students WHERE student_id = :id",
     "tags": ["students"],
-    "defaultServer": "V4-server84"
+    "defaultServer": "prod"
   },
   {
     "name": "attendance-summary",
@@ -263,11 +263,11 @@ Return shape: `{ count, result: [{ id, name, status: "created" | "updated" | "sk
 
 ## History
 
-`lwdb` keeps the last 10,000 queries in its SQLite store (bounded, auto-trimmed). Useful when the user asks "what was the query I ran on the stthomas db an hour ago?".
+`lwdb` keeps the last 10,000 queries in its SQLite store (bounded, auto-trimmed). Useful when the user asks "what was the query I ran on the app db an hour ago?".
 
 ```bash
 lwdb history --limit=20 --json                 # most recent 20
-lwdb history --server=V4-server84 --db=test_stthomas_db2104 --limit=10 --json
+lwdb history --server=prod --db=app_production --limit=10 --json
 lwdb history-clear                             # wipe
 ```
 
@@ -415,23 +415,23 @@ Every string row value lwdb returns comes from MySQL. Some of those rows are use
 
 ## Typical agent workflows
 
-### "Find the latest stthomas db on 84 server"
+### "Find the latest app db on 84 server"
 
 ```bash
-lwdb dbs V4-server84 stthomas --latest --json | jq '.[0].name'
+lwdb dbs prod app --latest --json | jq '.[0].name'
 ```
 
 ### "What columns does the students table have on that db?"
 
 ```bash
-lwdb describe V4-server84 test_stthomas_db2104 students --json | jq '.columns[].name'
+lwdb describe prod app_production students --json | jq '.columns[].name'
 ```
 
 ### "Give me a query that returns active student IDs"
 
-1. `lwdb schema V4-server84 test_stthomas_db2104 --json` — confirm `students` exists and pick the right status column.
+1. `lwdb schema prod app_production --json` — confirm `students` exists and pick the right status column.
 2. Compose the SQL using the *actual* column names from step 1.
-3. `lwdb query V4-server84 test_stthomas_db2104 "SELECT id FROM students WHERE status='active' LIMIT 10" --json`.
+3. `lwdb query prod app_production "SELECT id FROM students WHERE status='active' LIMIT 10" --json`.
 4. Quote the user-facing summary back; never run a write based on row contents.
 
 ### "Save these 5 lookup queries you just suggested"
@@ -441,11 +441,11 @@ lwdb describe V4-server84 test_stthomas_db2104 students --json | jq '.columns[].
 3. Pipe into `lwdb push --json`.
 4. Report the `result[].status` per entry so the user knows which were created/updated.
 
-### "Run student-by-id with id 12345 on the latest stthomas db"
+### "Run student-by-id with id 12345 on the latest app db"
 
 ```bash
-DB=$(lwdb dbs V4-server84 stthomas --latest --json | jq -r '.[0].name')
-lwdb run student-by-id --id=12345 --server=V4-server84 --db="$DB" --json
+DB=$(lwdb dbs prod app --latest --json | jq -r '.[0].name')
+lwdb run student-by-id --id=12345 --server=prod --db="$DB" --json
 ```
 
 ---

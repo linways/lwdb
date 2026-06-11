@@ -17,7 +17,7 @@ export function slugify(label) {
 }
 
 /** Preserve an explicitly-provided id verbatim — only sanitize invalid chars,
- *  KEEP case — so migrated/known ids like "V4-server84" stay stable across the
+ *  KEEP case — so migrated/known ids like "Prod-1" stay stable across the
  *  dbconfs→store migration (existing snippets reference them by exact id). */
 export function normalizeId(id) {
   const base = String(id || '')

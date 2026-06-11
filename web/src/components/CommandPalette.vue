@@ -219,7 +219,7 @@ watch(() => store.tables, (v) => { tablesCache.value = v; });
         ref="inputRef"
         v-model="q"
         class="palette-input"
-        :placeholder="mode === 'pickServer' ? 'Filter servers' : mode === 'pickDb' ? 'Filter databases (try: stthomas)' : 'Search tables, snippets, history, actions…'"
+        :placeholder="mode === 'pickServer' ? 'Filter servers' : mode === 'pickDb' ? 'Filter databases' : 'Search tables, snippets, history, actions…'"
       >
       <div class="palette-list">
         <template

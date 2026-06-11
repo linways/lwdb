@@ -5,8 +5,8 @@ import { pickStatement, parseUseStatement } from './sqlStatements.js';
 import { THEME_PREFS, resolveTheme } from './themes.js';
 import { applyTheme, systemPrefersDark, watchSystemTheme } from './theme.js';
 
-// localStorage-backed schema cache. Linways AMS schemas are nearly identical
-// across colleges, so once we've fetched a db's table/column map there's
+// localStorage-backed schema cache. Sibling databases on a server often share
+// a near-identical schema, so once we've fetched a db's table/column map there's
 // little reason to refetch on every db switch. Refresh is user-triggered.
 // Bump the version segment whenever the schema response shape changes; old
 // localStorage entries with a different prefix are simply ignored.
@@ -177,8 +177,8 @@ export const actions = {
     localStorage.setItem(`lwdb:lastDb:${store.currentServer}`, db);
     pushRecentDb(store.currentServer, db);
 
-    // Schema: hit the localStorage cache if we have one — schemas are nearly
-    // identical across colleges and rarely change, so don't re-fetch.
+    // Schema: hit the localStorage cache if we have one — sibling databases
+    // often share a schema and it rarely changes, so don't re-fetch.
     const cached = readSchemaCache(store.currentServer, db);
     if (cached) {
       store.schema = { ...cached, cached: true };

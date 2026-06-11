@@ -50,4 +50,4 @@ if (tags.includes(next)) fail(`${next} already exists.`);
 console.log(`Releasing ${latest} → ${next} (${bump}) from main @ ${local.slice(0, 7)}`);
 sh(`git tag ${next}`);
 sh(`git push origin ${next}`);
-console.log(`✓ pushed ${next}. CI is building: https://github.com/linways/lwdb/actions`);
+console.log(`✓ pushed ${next}. CI is building: https://github.com/sibincbaby/lwdb/actions`);

@@ -17,6 +17,7 @@ const DEFAULTS = {
   dbConfsDir: null,
   dataDir: join(PROJECT_ROOT, 'data'),
   sqlitePath: null, // derived
+  token: null,
   queryTimeoutMs: 30_000,
   connectTimeoutMs: 4_000,
   poolMaxPerKey: 5,
@@ -53,6 +54,7 @@ export async function loadConfig() {
     dbConfsDir: pickEnv('LW_DB_CONFS_DIR') || pkg.dbConfsDir || DEFAULTS.dbConfsDir,
     dataDir: pickEnv('LW_DB_DATA_DIR') || pkg.dataDir || DEFAULTS.dataDir,
     sqlitePath: pickEnv('LW_DB_SQLITE') || pkg.sqlitePath,
+    token: pickEnv('LW_DB_TOKEN') || pkg.token || DEFAULTS.token,
     queryTimeoutMs: pickEnv('LW_DB_QUERY_TIMEOUT_MS', Number) || DEFAULTS.queryTimeoutMs,
     logLevel: pickEnv('LW_DB_LOG_LEVEL') || pkg.logLevel || DEFAULTS.logLevel,
     projectRoot: PROJECT_ROOT,

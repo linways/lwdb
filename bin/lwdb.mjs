@@ -236,9 +236,9 @@ DAEMON
   --no-daemon   Skip detection and connect directly (env: LW_DB_NO_DAEMON=1).
 
 EXAMPLES
-  lwdb dbs V4-server84 stthomas --latest
-  lwdb query V4-server84 test_stthomas_db2104 "SELECT id, name FROM students LIMIT 3"
-  lwdb run student-info --studentId=12345 --server=V4-server84 --db=test_stthomas_db2104
+  lwdb dbs prod app --latest
+  lwdb query prod app_production "SELECT id, name FROM students LIMIT 3"
+  lwdb run student-info --studentId=12345 --server=prod --db=app_production
   lwdb backup --format=sqlite --out=/tmp/lwdb-$(date +%F).sqlite
 
   # AI bulk push from stdin:
@@ -246,7 +246,7 @@ EXAMPLES
   [
     { "name": "student-by-id", "description": "Lookup student by id",
       "sql": "SELECT * FROM students WHERE student_id = :id",
-      "tags": ["students"], "defaultServer": "V4-server84" },
+      "tags": ["students"], "defaultServer": "prod" },
     { "name": "attendance-summary",
       "sql": "SELECT student_id, COUNT(*) FROM attendance WHERE date BETWEEN :from AND :to GROUP BY student_id" }
   ]
@@ -675,7 +675,7 @@ async function main() {
             description: 'Lookup student by id',
             sql: 'SELECT * FROM students WHERE student_id = :id',
             tags: ['students'],
-            defaultServer: 'V4-server84',
+            defaultServer: 'prod',
             defaultDb: null,
           },
         ],

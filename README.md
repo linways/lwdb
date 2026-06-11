@@ -10,7 +10,7 @@
   <img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-skill-7b61ff.svg">
 </p>
 
-A lightweight MySQL workbench for engineers who manage many databases across the Linways V3 / V4 / local servers. Replaces DBeaver for the 80% of daily "switch server, find a database, run a query, save it as a template" work.
+A lightweight MySQL workbench for engineers who manage many databases across several servers (prod / staging / local, behind SSH tunnels or direct). Replaces DBeaver for the 80% of daily "switch server, find a database, run a query, save it as a template" work.
 
 Two ways to drive it, one shared core:
 
@@ -28,7 +28,7 @@ Two ways to drive it, one shared core:
 
 ```bash
 # 1. Install the core (CLI + server). Needs Node ≥ 22.5.
-git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
+git clone https://github.com/sibincbaby/lwdb.git lwdb && cd lwdb
 npm run setup
 
 # 2. Add a connection (or import many — see connections.example.json)
@@ -47,7 +47,7 @@ Details below.
 ## ✨ Highlights
 
 - **One picker for everything.** `⌘K` opens a global palette — fuzzy-find servers, databases, tables, saved queries, recent queries, actions. No tree to expand.
-- **Multi-tab workspace.** Run on V4-server84 and V3-server63 side by side without "switching the active DB" the way `setDB.php` does.
+- **Multi-tab workspace.** Run against `prod` and `staging` side by side — no global "active database" to switch.
 - **Live SQL autocomplete** with from-clause awareness — typing in `WHERE` suggests the actual columns of the table in the current `FROM`, alongside dot-prefix `tbl.col` and SQL keyword completions.
 - **Saved templates with named parameters** (`:studentId`) and per-run operator overrides — flip `name = :name` to `LIKE %name%` without editing the snippet.
 - **DBeaver-style right-click on result rows** → copy as `INSERT` / `UPDATE` / `DELETE`, with WHERE on the detected primary key.
@@ -56,7 +56,7 @@ Details below.
 - **Interactive write approval.** An agent can request approval for one specific write (`lwdb query … --approve`); the desktop app pops a modal showing the exact SQL, and the write runs server-side only when you click **Approve**. Per-write human consent — no global switch to leave flipped on. Write-protected connections (`conn-add --protected`) refuse writes outright.
 - **SQLite storage.** Connections, snippets, query history, and preferences in one file (`data/lwdb.sqlite`). Backup = copy a file.
 - **Encrypted credentials at rest.** Connection passwords are AES-256-GCM encrypted in SQLite; the key lives in a separate `0600` file at `~/.lwdb/key` (or `LW_DB_KEY`/`LW_DB_KEY_FILE`), never inside the DB. Steal `lwdb.sqlite` alone and you get ciphertext. `lwdb secure status` shows the key source and how many rows are encrypted; `lwdb secure migrate` re-encrypts any legacy plaintext rows. (No OS-keychain prompt per command — that would wreck the agent CLI; keychain storage of the key is an optional desktop-side enhancement.)
-- **Built-in connection store.** Connections live in lwdb's own SQLite store — add them with `lwdb conn-add` or `lwdb import` (universal JSON, see `connections.example.json`). Migrating from the old Linways `dbconfs/*.txt`? Convert once with `node tools/dbconfs-to-json.mjs <dir>`, then `lwdb import`.
+- **Built-in connection store.** Connections live in lwdb's own SQLite store — add them with `lwdb conn-add` or `lwdb import` (universal JSON, see `connections.example.json`). Have a directory of legacy `dbconf`-style `*.txt` files? Convert once with `node tools/dbconfs-to-json.mjs <dir>`, then `lwdb import`.
 - **Agent-friendly CLI.** `lwdb` mirrors every UI capability; auto-JSON when piped; bulk template push idempotent by name.
 
 ---
@@ -70,7 +70,7 @@ lwdb installs in two layers — install the core; the desktop app is optional.
 Needs **Node ≥ 22.5** (for built-in `node:sqlite`).
 
 ```bash
-git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
+git clone https://github.com/sibincbaby/lwdb.git lwdb && cd lwdb
 npm run setup
 ```
 
@@ -138,7 +138,7 @@ To wipe data too: `rm -rf ~/.lwdb data/` afterward.
 <summary>Manual install (without the installer script)</summary>
 
 ```bash
-git clone https://github.com/linways/lwdb.git lwdb && cd lwdb
+git clone https://github.com/sibincbaby/lwdb.git lwdb && cd lwdb
 npm install
 npm link                       # puts `lwdb` on $PATH
 ```
@@ -163,7 +163,7 @@ The desktop app is the primary GUI — a DBeaver-style native window. It's a thi
 
 ### Option A — download a release (no build)
 
-Grab the `.deb` (or `.rpm` / `.AppImage`) from the [**Releases page**](https://github.com/linways/lwdb/releases/latest):
+Grab the `.deb` (or `.rpm` / `.AppImage`) from the [**Releases page**](https://github.com/sibincbaby/lwdb/releases/latest):
 
 ```bash
 sudo dpkg -i lwdb_*_amd64.deb          # Debian/Ubuntu/Mint
@@ -221,7 +221,9 @@ ssh -N -L 4321:127.0.0.1:4321 you@remote-host
 #   → open http://127.0.0.1:4321
 ```
 
-Same UI, same server — just reached through a browser instead of the native window. The port stays bound to `127.0.0.1` on **both** machines and only travels inside your SSH session, so nothing is exposed to the network. (If you ever need to bind beyond localhost, add API auth first — that's deliberately not on by default.)
+Same UI, same server — just reached through a browser instead of the native window. The port stays bound to `127.0.0.1` on **both** machines and only travels inside your SSH session, so nothing is exposed to the network.
+
+If you ever need to bind **beyond** localhost, turn on the API token first: set `LW_DB_TOKEN=<random string>` (env or `.env`). Every `/api` request then requires it — `Authorization: Bearer <token>`, or `?token=<token>` for a browser's first page load (the SPA stores it after that). The CLI and MCP server read `LW_DB_TOKEN` from the same environment automatically. Unset (the default) means no auth — correct for the localhost-only model.
 
 ---
 
@@ -233,7 +235,7 @@ Same UI, same server — just reached through a browser instead of the native wi
 
 ```bash
 # Install lwdb for the user (Node ≥ 22.5 required):
-git clone https://github.com/linways/lwdb.git lwdb && cd lwdb && npm run setup
+git clone https://github.com/sibincbaby/lwdb.git lwdb && cd lwdb && npm run setup
 # Verify, then add connections:
 lwdb doctor
 lwdb conn-add --label="Local" --host=localhost --user=root   # or: lwdb import <file.json>
@@ -301,41 +303,41 @@ Run `lwdb <cmd> --help` for flag info.
 <summary>Click to expand a copy-pasteable cheatsheet covering the most common workflows.</summary>
 
 ```bash
-# Discover — find the latest stthomas db on V4-server84
-lwdb dbs V4-server84 stthomas --latest --json
+# Discover — list databases on a server (filter by substring, newest first)
+lwdb dbs prod app --latest --json
 
 # Search for a table across every db on a server
-lwdb find-table V4-server84 students --json
+lwdb find-table prod users --json
 
 # Inspect schema before generating SQL
-lwdb schema V4-server84 test_stthomas_db2104 --json    # full table → cols map
-lwdb describe V4-server84 test_stthomas_db2104 students --json
+lwdb schema prod app_production --json    # full table → cols map
+lwdb describe prod app_production users --json
 
 # Run a read-only query
-lwdb query V4-server84 test_stthomas_db2104 "SELECT id, name FROM students LIMIT 5"
+lwdb query prod app_production "SELECT id, name FROM users LIMIT 5"
 
 # Run a write — needs the master switch ON + per-call --yes (after the user confirms)
 lwdb agent-writes on
-lwdb query V4-server84 test_stthomas_db2104 \
-  "UPDATE students SET status='archived' WHERE id=42" --yes
+lwdb query prod app_production \
+  "UPDATE users SET status='archived' WHERE id=42" --yes
 
 # Save a parametrized template
-lwdb save student-by-id "SELECT * FROM students WHERE student_id = :id" \
-  --description="Look up a student by id" \
-  --tags=students \
-  --default-server=V4-server84
+lwdb save user-by-id "SELECT * FROM users WHERE user_id = :id" \
+  --description="Look up a user by id" \
+  --tags=users \
+  --default-server=prod
 
 # Run it
-lwdb run student-by-id --id=12345 --db=test_stthomas_db2104
+lwdb run user-by-id --id=12345 --db=app_production
 
 # Per-param operator at run time — exact → contains, no snippet edit
-lwdb run ec-rule-by-name --name='EXAM' --name-op=like_contains
+lwdb run rule-by-name --name='PROMO' --name-op=like_contains
 
 # Bulk-push templates an AI agent prepared (idempotent by name)
 cat templates.json | lwdb push
 
 # History — what did I run an hour ago?
-lwdb history --server=V4-server84 --limit=20
+lwdb history --server=prod --limit=20
 
 # Backup / restore
 lwdb backup --format=sqlite --out=/tmp/lwdb-$(date +%F).sqlite

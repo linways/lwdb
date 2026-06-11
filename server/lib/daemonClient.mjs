@@ -12,9 +12,16 @@ import { appError, Codes } from './errors.mjs';
  * when it answers like lwdb (ok === true), otherwise null — including when
  * the port is closed, slow, or held by some other app.
  */
+// When the daemon requires a token, the CLI/MCP share the same machine + env,
+// so we read LW_DB_TOKEN and present it as a Bearer header on every call.
+function authHeaders() {
+  const token = process.env.LW_DB_TOKEN;
+  return token ? { authorization: `Bearer ${token}` } : {};
+}
+
 export async function detectDaemon(baseUrl, { timeoutMs = 250 } = {}) {
   try {
-    const res = await fetch(`${baseUrl}/api/health`, { signal: AbortSignal.timeout(timeoutMs) });
+    const res = await fetch(`${baseUrl}/api/health`, { headers: authHeaders(), signal: AbortSignal.timeout(timeoutMs) });
     if (!res.ok) return null;
     const body = await res.json();
     return body?.ok === true ? body : null;
@@ -28,7 +35,7 @@ async function request(baseUrl, path, { method = 'GET', body } = {}) {
   try {
     res = await fetch(baseUrl + path, {
       method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+      headers: { ...authHeaders(), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (err) {

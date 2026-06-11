@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node --no-warnings=ExperimentalWarning
 /**
- * One-shot migration: convert legacy Linways dbconfs/*.txt files into the
- * universal lwdb connection JSON. Run once, then `lwdb import <out>`.
+ * One-shot migration: convert a directory of legacy PHP "dbconf" *.txt files
+ * (each defining $DB_HOST / $DB_USER / $DB_PASSWD) into the universal lwdb
+ * connection JSON. Run once, then `lwdb import <out>`.
  *
  * Usage: node tools/dbconfs-to-json.mjs <dbconfsDir> [outFile]
  *   default outFile: data/connections.import.json (gitignored)
@@ -38,7 +39,7 @@ for (const file of entries) {
     port: conf.port,
     user: conf.user,
     password: conf.password,
-    group: id === 'localdb' ? 'local' : 'linways',
+    group: id === 'localdb' ? 'local' : 'remote',
   });
 }
 

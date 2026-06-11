@@ -1,9 +1,30 @@
 const base = '/api';
+const TOKEN_KEY = 'lwdb:token';
+
+// Optional API token. When the server runs with LW_DB_TOKEN, the first page load
+// carries it as `?token=...`; capture it, persist it, and strip it from the URL.
+// Subsequent /api calls send it as a Bearer header. No token → no-op (the default).
+try {
+  const u = new URL(window.location.href);
+  const t = u.searchParams.get('token');
+  if (t) {
+    localStorage.setItem(TOKEN_KEY, t);
+    u.searchParams.delete('token');
+    window.history.replaceState({}, '', u.pathname + u.search + u.hash);
+  }
+} catch { /* not a browser context */ }
+
+function authHeader() {
+  try {
+    const t = localStorage.getItem(TOKEN_KEY);
+    return t ? { authorization: `Bearer ${t}` } : {};
+  } catch { return {}; }
+}
 
 async function req(path, opts = {}) {
   const res = await fetch(`${base}${path}`, {
-    headers: { 'content-type': 'application/json' },
     ...opts,
+    headers: { 'content-type': 'application/json', ...authHeader(), ...(opts.headers || {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   const text = await res.text();

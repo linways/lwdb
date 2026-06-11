@@ -3,16 +3,16 @@
   "version": "0.1.2",
   "private": true,
   "type": "module",
-  "description": "lwdb — lightweight MySQL browser + agent-friendly CLI for the Linways multi-server setup",
-  "author": "lwdb contributors",
+  "description": "lwdb — agent-first MySQL workbench: a JSON-native CLI, an MCP server, and a native desktop app over one shared core.",
+  "author": "Sibin C Baby",
   "license": "MIT",
-  "homepage": "https://github.com/linways/lwdb#readme",
+  "homepage": "https://github.com/sibincbaby/lwdb#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/linways/lwdb.git"
+    "url": "git+https://github.com/sibincbaby/lwdb.git"
   },
   "bugs": {
-    "url": "https://github.com/linways/lwdb/issues"
+    "url": "https://github.com/sibincbaby/lwdb/issues"
   },
   "keywords": [
     "mysql",
@@ -21,7 +21,8 @@
     "db-browser",
     "claude-code",
     "ai-agent",
-    "linways"
+    "mcp",
+    "tauri"
   ],
   "engines": {
     "node": ">=22.5.0"
@@ -29,11 +30,23 @@
   "bin": {
     "lwdb": "./bin/lwdb.mjs"
   },
+  "files": [
+    "bin/",
+    "server/",
+    "dist/",
+    "install.mjs",
+    ".claude/skills/lwdb/SKILL.md",
+    "connections.example.json",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
   "scripts": {
     "dev": "concurrently -k -n api,web -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
     "dev:api": "node --watch --no-warnings=ExperimentalWarning server/index.mjs",
     "dev:web": "vite",
     "build": "vite build",
+    "prepublishOnly": "npm run build",
     "start": "node --no-warnings=ExperimentalWarning server/index.mjs",
     "setup": "node install.mjs install",
     "cli": "node bin/lwdb.mjs",
@@ -82,7 +95,6 @@
     "vue": "^3.5.12"
   },
   "lwDb": {
-    "dbConfsDir": "/var/www/html/linways/professional/dbconfs",
     "port": 4321,
     "host": "127.0.0.1"
   }

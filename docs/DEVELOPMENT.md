@@ -17,7 +17,7 @@ lwdb is **one Node codebase** with two entry points, plus an optional desktop sh
 
 Connections, snippets, history, and preferences live in a local **SQLite** file
 (`data/lwdb.sqlite`, gitignored). There is no external config; the old
-Linways `dbconfs/*.txt` loader was removed (migrate with `tools/dbconfs-to-json.mjs`).
+The legacy `dbconfs/*.txt` loader was removed (migrate with `tools/dbconfs-to-json.mjs`).
 
 **Key invariant:** a webview can't open raw TCP to MySQL, so a native layer
 (Node) always runs. Agents use the headless CLI (no server); the server exists
@@ -52,7 +52,7 @@ docs/                   this guide + superpowers specs/plans
 ## 3. First-time setup
 
 ```bash
-git clone git@github.com:linways/lwdb.git && cd lwdb
+git clone git@github.com:sibincbaby/lwdb.git && cd lwdb
 npm run setup        # = node install.mjs install
 ```
 
@@ -160,7 +160,7 @@ Watch a run: `gh run watch <id> --exit-status`. Tags aren't blocked by branch pr
 Thin shell over the **installed core** — it doesn't bundle Node.
 
 - **Build locally:** `npm run desktop:build` (bakes in `APPIMAGE_EXTRACT_AND_RUN=1` so the AppImage builds without FUSE). `desktop:clean` removes `src-tauri/target/release/bundle`; `desktop:rebuild` does both. One-time toolchain: `rustup default stable` + `sudo apt install libwebkit2gtk-4.1-dev build-essential libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev`.
-- **Binary name:** `lwdb-desktop` (NOT `lwdb` — that would collide with the CLI on PATH). Bundle id: `com.linways.lwdb`. Window opens **maximized**.
+- **Binary name:** `lwdb-desktop` (NOT `lwdb` — that would collide with the CLI on PATH). Bundle id: `com.sibincbaby.lwdb`. Window opens **maximized**.
 - **Runtime resolution (the "Connection refused" fix):** a desktop-launched app inherits a minimal `PATH`, so bare `node` can resolve to a wrong/old binary (e.g. an apt `node` v12 with no `node:sqlite`). The shell instead reads `~/.lwdb/launcher.json` (written by `install.mjs`) for the correct absolute Node + server path, validates fallback candidates with `node -e "require('node:sqlite')"`, **adopts** an already-running server instead of double-spawning, and shows an inline error page (not a blank refusal) if the core isn't installed. Override with `LWDB_NODE` / `LWDB_REPO`.
 - **Lifecycle:** server starts on launch, is killed on close — but only if the desktop spawned it (a server you started with `lwdb serve` is left running).
 
@@ -169,7 +169,7 @@ Thin shell over the **installed core** — it doesn't bundle Node.
 ## 8. Connections, writes, and the agent surface
 
 - Connections are managed via the UI (Settings → Connections), the command palette, or the CLI (`conn-add`/`conn-edit`/`conn-rm`/`conn-test`, `import`/`export`). Stored in SQLite; passwords are plaintext in the gitignored `data/lwdb.sqlite` (DBeaver's trust model).
-- Connection **ids preserve explicit case** (e.g. `V4-server84`) so saved snippets keep resolving; ids auto-derived from a label are lowercase slugs.
+- Connection **ids preserve explicit case** (e.g. `Prod-1`) so saved snippets keep resolving; ids auto-derived from a label are lowercase slugs.
 - **Read-only by default.** Writes (INSERT/UPDATE/DELETE/DDL) from the CLI/agents need **both**: a human-set master switch (`lwdb agent-writes on`, or Settings → AI Agents) **and** a per-call `--yes`. Connection management is *config*, not behind that gate; `conn-rm` still needs `--yes`.
 - The agent contract lives in `.claude/skills/lwdb/SKILL.md`. After editing it, run `lwdb update-skill` to refresh the `~/.lwdb/skill/` snapshot.
 

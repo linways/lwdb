@@ -40,10 +40,9 @@ data/
 .env.test.local
 
 # ── Connection configs (defense-in-depth) ─────────────────────────────
-# The Linways dbconfs/ live OUTSIDE the repo (LW_DB_CONFS_DIR points at
-# /var/www/html/linways/professional/dbconfs). If someone ever copies
-# one into the repo, we must not commit it — those files contain
-# plaintext MySQL passwords.
+# Legacy dbconf-style *.txt files live OUTSIDE the repo (LW_DB_CONFS_DIR
+# points at them). If someone ever copies one into the repo, we must not
+# commit it — those files contain plaintext MySQL passwords.
 dbconfs/
 *.dbconf
 *-dbconf.txt
