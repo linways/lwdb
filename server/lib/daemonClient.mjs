@@ -75,5 +75,8 @@ export function createDaemonBackend(baseUrl, { actor = 'cli' } = {}) {
       request(baseUrl, `/api/snippets/${e(snippet.id)}/run`, { method: 'POST', body: { server, db, params, ops, writable, limit, actor } }),
     testConnection: (spec) => request(baseUrl, '/api/connections/test', { method: 'POST', body: spec }),
     getAgentWrites: async () => (await request(baseUrl, '/api/preferences')).preferences?.agentWrites === true,
+    requestApproval: async ({ server, db, sql }) =>
+      (await request(baseUrl, '/api/approvals', { method: 'POST', body: { server, db, sql } })).approval,
+    getApproval: async (id) => (await request(baseUrl, `/api/approvals/${e(id)}`)).approval,
   };
 }

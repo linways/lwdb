@@ -9,6 +9,7 @@ import Settings from './components/Settings.vue';
 import ConnectionsManager from './components/ConnectionsManager.vue';
 import StatusBar from './components/StatusBar.vue';
 import Toast from './components/Toast.vue';
+import ApprovalsModal from './components/ApprovalsModal.vue';
 
 const paletteOpen = ref(false);
 const paletteMode = ref('global');
@@ -183,6 +184,7 @@ async function handleSaveSnippet(payload) {
       v-if="store.toast"
       :toast="store.toast"
     />
+    <ApprovalsModal />
   </div>
 </template>
 
