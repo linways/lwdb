@@ -10,6 +10,7 @@ import { SnippetStore } from './snippets.mjs';
 import { HistoryStore } from './history.mjs';
 import { PreferenceStore } from './preferences.mjs';
 import { AnnotationStore } from './annotations.mjs';
+import { ApprovalQueue } from './approvals.mjs';
 import { loadConfig } from './config.mjs';
 import { configurePool, setHealthTracker } from './pool.mjs';
 import { ConnectionHealth } from './connectionHealth.mjs';
@@ -47,6 +48,7 @@ export async function buildRegistry() {
   const history = new HistoryStore(db, { max: config.historyMax });
   const preferences = new PreferenceStore(db);
   const annotations = new AnnotationStore(db);
+  const approvals = new ApprovalQueue();
 
   function getConnection(id) {
     const c = connectionStore.get(id);
@@ -70,6 +72,7 @@ export async function buildRegistry() {
     history,
     preferences,
     annotations,
+    approvals,
     connectionHealth,
     db,
     getConnection,

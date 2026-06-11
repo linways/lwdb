@@ -172,6 +172,16 @@ lwdb query V4-server84 test_stthomas_db2104 \
 
 If writes are off you get `AGENT_WRITES_DISABLED`; if on but you didn't pass `--yes` you get `CONFIRM_REQUIRED`. Both are 403. The right response to either is to **ask the user**, not to flip the switch or add `--yes` yourself.
 
+#### Interactive approval (`--approve`) — per-write human consent
+
+Instead of the global switch + `--yes`, you can ask the human to approve **one specific write live in the lwdb app**:
+
+```bash
+lwdb query V4-server84 some_db "UPDATE students SET status='archived' WHERE id=42" --approve --json
+```
+
+This needs a running lwdb server (the desktop app or `lwdb serve`). The command **blocks** while a pending approval shows the exact SQL in the app; when the human clicks **Approve & run**, the write executes server-side and the command returns the result. If they click **Deny** you get `CONFIRM_REQUIRED`; if nobody answers within the timeout (default 120s, `--timeout=SEC`) you get `TIMEOUT`; with no server running you get `NO_DAEMON`. Write-protected connections still refuse (`READONLY_BLOCKED`). Use `--approve` when you'd otherwise be blocked by `AGENT_WRITES_DISABLED` and the user is at their machine — it's safer than asking them to flip the global switch. (MCP: set `await_approval: true` on `run_query`.)
+
 ### Reserved-word table names
 
 MySQL reserves words like `groups`, `order`, `interval`. Wrap them in backticks:

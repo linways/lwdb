@@ -126,7 +126,7 @@ async function helpJson() {
       cmd('sample', 'data', 'Return a few real rows (SELECT * LIMIT n).', [a('server', true), a('db', true), a('table', true)], { limit: 'Rows (default 5, max 100).' }),
       cmd('profile', 'data', 'Per-column null%/distinct/min/max/top over a bounded sample.', [a('server', true), a('db', true), a('table', true)], { columns: 'Comma-separated subset.', top: 'Top values (default 5).', sample: 'Sample size (default 10000).', exact: 'Full scan instead of a sample.' }),
       cmd('find-table', 'data', 'Search tables across every db on a server.', [a('server', true), a('pattern', true)]),
-      cmd('query', 'data', 'Run one SQL statement (read-only unless writes unlocked).', [a('server', true), a('db'), a('sql', true)], { yes: 'Confirm a write after the user approves.', limit: 'Row limit for SELECT.' }),
+      cmd('query', 'data', 'Run one SQL statement (read-only unless writes unlocked).', [a('server', true), a('db'), a('sql', true)], { yes: 'Confirm a write after the user approves.', limit: 'Row limit for SELECT.', approve: 'Wait for a human to approve this exact write live in the lwdb app (needs a running server).', timeout: 'Seconds to wait for --approve (default 120).' }),
       cmd('snippets', 'snippets', 'List saved query templates.', [a('pattern')]),
       cmd('save', 'snippets', 'Create a saved query template.', [a('name', true), a('sql', true)], { description: '', tags: 'Comma-separated.', 'default-server': '', 'default-db': '' }),
       cmd('run', 'snippets', 'Run a snippet by name/id, binding :params.', [a('name', true)], { server: '', db: '', writable: 'Confirm a write.', limit: '' }),
@@ -173,8 +173,10 @@ DATA
   sample <server> <db> <table>      # SELECT * LIMIT n (n default 5, --limit=N)
   profile <server> <db> <table>     # per-column nulls/distinct/min/max/top [--columns=a,b] [--exact]
   find-table <server> <pattern>     # search tables across every db on a server
-  query <server> [db] "<sql>"       [--yes] [--limit=N]
+  query <server> [db] "<sql>"       [--yes] [--limit=N] [--approve] [--timeout=SEC]
                                        # writes need: agent-writes ON + --yes (user-confirmed)
+                                       # OR --approve: a human approves THIS exact write live in
+                                       #   the lwdb app (needs a running server; default wait 120s)
 
 CONNECTIONS
   servers | connections             # list connections
@@ -460,6 +462,31 @@ async function main() {
       if (positional.length >= 2) { db = positional[0]; sql = positional.slice(1).join(' '); }
       else if (positional.length === 1) { sql = positional[0]; }
       if (!sql) die('SQL required');
+
+      // --approve: ask a human to approve THIS write live in the lwdb app, instead
+      // of relying on the global agent-writes switch. Needs a running server.
+      if (flags.approve) {
+        let info; try { info = inspectSql(sql); } catch { info = null; }
+        if (info && info.allReadOnly) {
+          // read-only — no approval needed; just run it.
+          const ro = await backend.runQuery({ server, db, sql, writable: false, limit: flags.limit ? parseInt(flags.limit, 10) : undefined });
+          emit(ro);
+          break;
+        }
+        const { awaitApproval } = await import('../server/lib/backend.mjs');
+        let final;
+        try {
+          final = await awaitApproval(backend, { server, db, sql }, {
+            timeoutMs: flags.timeout ? parseInt(flags.timeout, 10) * 1000 : 120_000,
+            onPending: (a) => { if (!wantJson) process.stderr.write(`Waiting for a human to approve in the lwdb app (${a.id}):\n  ${sql}\n`); },
+          });
+        } catch (err) { die(`${err.message} (code: ${err.code || 'DB_ERROR'})`); }
+        if (final.status === 'approved') { emit(final.result); break; }
+        if (final.status === 'denied') die('Write denied by the user. (code: CONFIRM_REQUIRED)');
+        if (final.status === 'timeout') die('Approval timed out — nobody responded. (code: TIMEOUT)');
+        die(`${final.error?.message || 'approval failed'} (code: ${final.error?.code || 'DB_ERROR'})`);
+      }
+
       const result = await backend.runQuery({
         server,
         db,

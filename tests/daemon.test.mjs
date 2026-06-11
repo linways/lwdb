@@ -201,6 +201,58 @@ test('CLI forwards `profile` through a running daemon', async () => {
   });
 });
 
+test('CLI --approve creates an approval, waits, and emits the approved result', async () => {
+  const pending = { id: 'apr_x', server: 'X', db: 'D', sql: 'UPDATE t SET a=1', status: 'pending', requestedAt: 't' };
+  const approved = { ...pending, status: 'approved', result: { verb: 'UPDATE', rowCount: 1, rows: [] } };
+  await withFakeDaemon({
+    'POST /api/approvals': { body: { approval: pending } },
+    'GET /api/approvals/apr_x': { body: { approval: approved } },
+  }, async (fake, env) => {
+    const { code, stdout } = await runCli(['query', 'X', 'D', 'UPDATE t SET a=1', '--approve'], env);
+    assert.equal(code, 0, stdout);
+    assert.deepEqual(JSON.parse(stdout), approved.result);
+    const created = fake.requests.find((r) => r.key === 'POST /api/approvals');
+    assert.equal(created.body.sql, 'UPDATE t SET a=1');
+    assert.ok(fake.requests.some((r) => r.key === 'GET /api/approvals/apr_x'), 'CLI polled for the outcome');
+  });
+});
+
+test('CLI --approve reports a write denied by the human', async () => {
+  const pending = { id: 'apr_d', server: 'X', sql: 'DELETE FROM t', status: 'pending', requestedAt: 't' };
+  await withFakeDaemon({
+    'POST /api/approvals': { body: { approval: pending } },
+    'GET /api/approvals/apr_d': { body: { approval: { ...pending, status: 'denied' } } },
+  }, async (_fake, env) => {
+    const { code, stdout } = await runCli(['query', 'X', 'DELETE FROM t', '--approve'], env);
+    assert.notEqual(code, 0);
+    assert.match(JSON.parse(stdout).error.message, /denied/i);
+  });
+});
+
+test('CLI --approve on a read-only statement skips approval and just runs it', async () => {
+  const envelope = { sql: 'SELECT 1 LIMIT 500', verb: 'SELECT', rows: [{ 1: 1 }], rowCount: 1, fields: [], elapsedMs: 1 };
+  await withFakeDaemon({ 'POST /api/query': { body: envelope } }, async (fake, env) => {
+    const { code, stdout } = await runCli(['query', 'X', 'SELECT 1', '--approve'], env);
+    assert.equal(code, 0, stdout);
+    assert.deepEqual(JSON.parse(stdout), envelope);
+    assert.ok(!fake.requests.some((r) => r.key === 'POST /api/approvals'), 'read-only never requests approval');
+  });
+});
+
+test('CLI --approve without a running server fails clearly (NO_DAEMON)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lwdb-noappr-'));
+  try {
+    // No daemon: point at a closed port so detection fails and we fall back to local.
+    const { code, stdout } = await runCli(['query', 'X', 'DELETE FROM t', '--approve'], {
+      LW_DB_HOST: '127.0.0.1', LW_DB_PORT: '5999', LW_DB_SQLITE: join(dir, 'lwdb.sqlite'),
+    });
+    assert.notEqual(code, 0);
+    assert.match(JSON.parse(stdout).error.message, /running lwdb server|NO_DAEMON/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('CLI surfaces daemon error envelopes (code + message)', async () => {
   await withFakeDaemon({
     'POST /api/query': { status: 404, body: { error: { code: 'UNKNOWN_SERVER', message: 'Unknown server: X' } } },
