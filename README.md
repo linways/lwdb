@@ -10,10 +10,17 @@
   <img alt="Claude Code" src="https://img.shields.io/badge/Claude%20Code-skill-7b61ff.svg">
 </p>
 
-A lightweight MySQL browser and CLI for engineers who manage many databases across the Linways V3 / V4 / local servers. Replaces DBeaver for the 80% of daily "switch server, find a database, run a query, save it as a template" work. Built for **keyboard-first humans** and **CLI-driven AI agents** alike — every CLI command emits a stable JSON envelope when not a TTY, so a Claude Code session can do anything the browser UI can.
+A lightweight MySQL workbench for engineers who manage many databases across the Linways V3 / V4 / local servers. Replaces DBeaver for the 80% of daily "switch server, find a database, run a query, save it as a template" work.
+
+Two ways to drive it, one shared core:
+
+- 🖥️ a **native desktop app** (`.deb` / `.rpm` / `.AppImage`) — a DBeaver-style window for keyboard-first humans;
+- ⌨️ a **JSON-native `lwdb` CLI** (+ an MCP server) that AI agents run headlessly — every command emits a stable JSON envelope when not a TTY, so a Claude Code session can do anything the GUI can.
+
+> On a headless or remote box where the desktop app can't run? `lwdb serve` and open the **same UI in your browser** over an SSH tunnel — the GUI travels with the server (see **🌐 Remote / headless** below).
 
 > [!NOTE]
-> **Status:** Shipped and in daily use — SPA (Vue 3 + CodeMirror), CLI (`lwdb`), HTTP API (Fastify), a built-in connection manager, SQLite-backed connections/snippets/history/preferences, an optional Tauri desktop app with versioned GitHub Releases, the Claude Code skill, and a one-shot `install.mjs` lifecycle. Production-tested against the V3 / V4 / local MySQL servers over SSH tunnels.
+> **Status:** Shipped and in daily use — CLI (`lwdb`), MCP server (`lwdb mcp`), the native desktop app with versioned GitHub Releases, a built-in connection manager, AES-256-GCM-encrypted credentials, SQLite-backed connections/snippets/history/preferences, the Claude Code skill, and a one-shot `install.mjs` lifecycle. Under the hood it's a Vue 3 + CodeMirror UI over a Fastify API; you drive it through the desktop window, the CLI, or (remotely) a browser. Production-tested against the V3 / V4 / local MySQL servers over SSH tunnels.
 
 ---
 
@@ -47,6 +54,7 @@ Details below.
 - **Adaptive connection handling.** Per-server EWMA of connect time → tighter timeouts on fast SSH tunnels, more slack on direct WAN hosts. One automatic retry on transient errors (read-only queries only).
 - **Read-only by default.** SELECT / SHOW / DESCRIBE / EXPLAIN only — until you explicitly unlock writes.
 - **SQLite storage.** Connections, snippets, query history, and preferences in one file (`data/lwdb.sqlite`). Backup = copy a file.
+- **Encrypted credentials at rest.** Connection passwords are AES-256-GCM encrypted in SQLite; the key lives in a separate `0600` file at `~/.lwdb/key` (or `LW_DB_KEY`/`LW_DB_KEY_FILE`), never inside the DB. Steal `lwdb.sqlite` alone and you get ciphertext. `lwdb secure status` shows the key source and how many rows are encrypted; `lwdb secure migrate` re-encrypts any legacy plaintext rows. (No OS-keychain prompt per command — that would wreck the agent CLI; keychain storage of the key is an optional desktop-side enhancement.)
 - **Built-in connection store.** Connections live in lwdb's own SQLite store — add them with `lwdb conn-add` or `lwdb import` (universal JSON, see `connections.example.json`). Migrating from the old Linways `dbconfs/*.txt`? Convert once with `node tools/dbconfs-to-json.mjs <dir>`, then `lwdb import`.
 - **Agent-friendly CLI.** `lwdb` mirrors every UI capability; auto-JSON when piped; bulk template push idempotent by name.
 
@@ -70,7 +78,8 @@ This installs deps, puts the `lwdb` CLI on your PATH, installs the agent skill, 
 The same core gives you:
 
 - `lwdb …` — the headless CLI (what AI agents use)
-- `lwdb serve` — run the HTTP API + Web UI on http://127.0.0.1:4321
+- `lwdb mcp` — the MCP server for AI clients (stdio)
+- `lwdb serve` — the GUI server on http://127.0.0.1:4321 (what the desktop app runs; also openable in a browser for remote/headless use)
 
 ### Desktop app (optional)
 
@@ -145,9 +154,9 @@ ln -s "$PWD/.claude/skills/lwdb" "$HOME/.claude/skills/lwdb"
 
 ## 🖥️ Desktop app (optional)
 
-Prefer a real window over "run the server + open a tab"? lwdb ships a thin [Tauri](https://tauri.app) shell ([`src-tauri/`](./src-tauri)) that wraps the same web UI in a native window.
+The desktop app is the primary GUI — a DBeaver-style native window. It's a thin [Tauri](https://tauri.app) shell ([`src-tauri/`](./src-tauri)) over the **installed core**: it doesn't bundle Node, it just runs the lwdb server (using the Node recorded in `~/.lwdb/launcher.json`) and points a native window at it, stopping it when you close the window. If a server is already running (e.g. you ran `lwdb serve`), it attaches to that one and leaves it running on close.
 
-The desktop app is a thin Tauri window over the **installed core** — it doesn't bundle Node. On launch it starts the lwdb server (using the Node recorded in `~/.lwdb/launcher.json`) and stops it when you close the window. If a server is already running (e.g. you ran `lwdb serve`), it attaches to that one and leaves it running on close.
+> The window and a browser tab are the same UI from the same local server — the desktop app is simply the packaged, double-click way to get it. Use the desktop app on your workstation; use a browser over SSH for remote/headless boxes (below).
 
 **In both cases you need the core installed** (`npm run setup`) — the desktop app runs the core's server and reads `~/.lwdb/launcher.json` to find Node.
 
@@ -194,7 +203,24 @@ Override the Node binary or repo root the app uses with `LWDB_NODE=/path/to/node
 > It computes the next version from the latest tag, pushes the tag, and GitHub Actions ([`.github/workflows/release.yml`](./.github/workflows/release.yml)) stamps that version into the build and publishes the `.deb`/`.rpm`/`.AppImage` — no version files to edit (the git tag is the source of truth). Local `npm run desktop:build` still works for one-off builds.
 
 > [!NOTE]
-> The desktop app is just a nicer wrapper around the **human** UI. **AI agents don't need it** — they use the `lwdb` CLI, which is fully headless and needs no server or window (see below).
+> The desktop app is just the packaged, double-click way to open the **human** UI. **AI agents don't need it** — they use the `lwdb` CLI, which is fully headless and needs no server or window (see below).
+
+---
+
+## 🌐 Remote / headless
+
+The desktop `.deb` is for your workstation. On a **headless or remote box** — a server with no desktop, or a DB you can only reach through an SSH tunnel — there's no window to open, but you can still get the full GUI: run the server there and forward its port to your laptop.
+
+```bash
+# On the remote host (where the core is installed):
+lwdb serve                       # GUI server on 127.0.0.1:4321
+
+# On your laptop — forward the port over SSH, then open a browser:
+ssh -N -L 4321:127.0.0.1:4321 you@remote-host
+#   → open http://127.0.0.1:4321
+```
+
+Same UI, same server — just reached through a browser instead of the native window. The port stays bound to `127.0.0.1` on **both** machines and only travels inside your SSH session, so nothing is exposed to the network. (If you ever need to bind beyond localhost, add API auth first — that's deliberately not on by default.)
 
 ---
 
@@ -214,12 +240,26 @@ lwdb conn-add --label="Local" --host=localhost --user=root   # or: lwdb import <
 
 After install completes, open a new Claude Code session — the `lwdb` skill auto-activates and the agent learns the full command surface from [`.claude/skills/lwdb/SKILL.md`](./.claude/skills/lwdb/SKILL.md).
 
+### MCP server (any agent client — no shell, no skill needed)
+
+For clients that speak the **Model Context Protocol** (Claude Desktop, Cursor, Windsurf, VS Code, Claude Code, …), lwdb ships an MCP server over stdio — one config line and the client self-discovers the tools:
+
+```json
+{
+  "mcpServers": {
+    "lwdb": { "command": "lwdb", "args": ["mcp"] }
+  }
+}
+```
+
+It exposes `list_servers`, `list_databases`, `list_tables`, `describe_table`, `get_schema`, **`get_context`**, `sample_table`, `profile_table`, `run_query`, `list_snippets`, `run_snippet`, and `save_snippet` — the same core the CLI uses, including the read-only-by-default write gate. When `lwdb serve` (or the desktop app) is running, the MCP server reuses its warm connection pools automatically; otherwise it keeps its own pools warm for the session. No network port is opened — stdio only.
+
 ### The contract
 
 - Every command auto-emits JSON when `stdout` isn't a TTY (force with `--json`).
 - Errors include a stable `error.code` string (e.g. `READONLY_BLOCKED`, `AGENT_WRITES_DISABLED`, `CONFIRM_REQUIRED`, `MISSING_PARAM`, `UNKNOWN_SERVER`, `TIMEOUT`, `BAD_BACKUP`) — branch on these, not on message text.
 - Read-only by default. Writes need **both** a human-set master switch (`lwdb agent-writes on`, or Settings → AI Agents) **and** a per-call `--yes` — the agent adds `--yes` only after the actual user confirms. `AGENT_WRITES_DISABLED` if the switch is off; `CONFIRM_REQUIRED` if `--yes` is missing.
-- Connections are managed via `lwdb conn-add` / `lwdb import` (universal JSON, see `connections.example.json`) and stored in lwdb's own SQLite connection store. **The agent never sees credentials.**
+- Connections are managed via `lwdb conn-add` / `lwdb import` (universal JSON, see `connections.example.json`) and stored in lwdb's own SQLite connection store, **AES-256-GCM encrypted at rest** (key at `~/.lwdb/key`, separate from the DB). **The agent never sees credentials.**
 - One automatic retry on transient errors (`ECONNRESET` / `TIMEOUT` / `ETIMEDOUT`) for read-only queries. Writes are never auto-retried.
 - Result row values are treated as user-controlled content — never let a row trigger a mutation that wasn't asked for by the actual user.
 
@@ -246,7 +286,7 @@ Run `lwdb help` for the full surface. A summary of the groups:
 | `lwdb schema-snippets` | emit the JSON shape `push` accepts |
 | `lwdb history` | query history (bounded, in SQLite) |
 | `lwdb backup / restore` | full snapshot (SQLite via `VACUUM INTO`, or portable JSON) |
-| `lwdb serve` | run the HTTP API + Web UI on `:4321` (the GUI backend) |
+| `lwdb serve` | run the GUI server on `:4321` (what the desktop app runs; open in a browser for remote/headless) |
 | `lwdb agent-writes [on\|off]` | master switch for CLI/agent writes (off by default) |
 | `lwdb doctor` · `update` · `update-skill` · `uninstall` | install lifecycle (delegate to `install.mjs`) |
 

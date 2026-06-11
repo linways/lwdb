@@ -104,3 +104,12 @@ Desktop.ini
 tmp/
 .tmp/
 scratch/
+
+# ── Stray / personal files that must never re-enter the repo ──────────
+# These got committed by accident early on; they are not lwdb project
+# files. Kept on disk locally (untracked), ignored here.
+*.docx
+*.doc
+/cover.png
+JsonPromptMaker*.md
+Silpa_EB_Resume*

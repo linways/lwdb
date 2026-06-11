@@ -19,6 +19,16 @@ function toggleWritable() {
 function toggleTheme() {
   actions.setTheme(store.themeMode === 'dark' ? 'light' : 'dark');
 }
+
+async function copyCurrentDb() {
+  if (!store.currentDb) return;
+  try {
+    await navigator.clipboard.writeText(store.currentDb);
+    actions.toast(`Copied "${store.currentDb}"`, 'good');
+  } catch (err) {
+    actions.toast(`Copy failed: ${err.message}`, 'error');
+  }
+}
 </script>
 
 <template>
@@ -49,6 +59,15 @@ function toggleTheme() {
         v-if="store.loadingTables"
         class="spinner"
       />
+    </button>
+    <button
+      v-if="store.currentDb"
+      class="chip copy-chip"
+      :title="`Copy database name: ${store.currentDb}`"
+      aria-label="Copy database name"
+      @click="copyCurrentDb"
+    >
+      ⧉
     </button>
     <button
       v-if="store.currentDb"

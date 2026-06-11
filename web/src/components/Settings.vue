@@ -154,6 +154,26 @@ function resetAll() {
               </p>
             </div>
             <div class="row">
+              <label>Interface size</label>
+              <select
+                :value="store.prefs.uiDensity"
+                @change="actions.setDensity($event.target.value)"
+              >
+                <option value="compact">
+                  Compact (default)
+                </option>
+                <option value="comfortable">
+                  Comfortable — larger
+                </option>
+                <option value="large">
+                  Large — largest
+                </option>
+              </select>
+              <p class="hint">
+                Scales the whole interface up for easier reading and clicking. Applies immediately.
+              </p>
+            </div>
+            <div class="row">
               <label>Default SELECT LIMIT</label>
               <input
                 v-model.number="prefs.defaultLimit"
