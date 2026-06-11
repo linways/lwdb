@@ -13,6 +13,8 @@ import { buildRegistry } from './lib/registry.mjs';
 import { safeConnection } from './lib/connectionStore.mjs';
 import { listDatabases, listTables, describeTable, fetchSchema, closeAll, poolStats, pingConnection } from './lib/pool.mjs';
 import { runQuery } from './lib/runQuery.mjs';
+import { fetchContext } from './lib/context.mjs';
+import { profileTable } from './lib/profile.mjs';
 import { bindParams, extractParams } from './lib/snippets.mjs';
 import {
   backupSqlite, backupJson, restoreJson, defaultBackupPath,
@@ -153,6 +155,22 @@ app.get('/api/servers/:id/databases/:db/schema', asyncRoute(async (req) => {
   return await fetchSchema(conn, req.params.db);
 }));
 
+app.get('/api/servers/:id/databases/:db/context', asyncRoute(async (req) => {
+  const conn = registry.getConnection(req.params.id);
+  const annotations = registry.annotations.list({ server: req.params.id, db: req.params.db });
+  return await fetchContext(conn, req.params.db, { annotations });
+}));
+
+app.get('/api/servers/:id/databases/:db/tables/:table/profile', asyncRoute(async (req) => {
+  const conn = registry.getConnection(req.params.id);
+  return await profileTable(conn, req.params.db, req.params.table, {
+    columns: req.query.columns ? String(req.query.columns).split(',').map((s) => s.trim()).filter(Boolean) : null,
+    top: clampInt(req.query.top, { min: 1, max: 50, fallback: 5 }),
+    sampleSize: clampInt(req.query.sample, { min: 100, max: 1_000_000, fallback: 10_000 }),
+    exact: req.query.exact === '1' || req.query.exact === 'true',
+  });
+}));
+
 // ---------- query ----------
 
 app.post('/api/query', asyncRoute(async (req) => {
@@ -168,6 +186,7 @@ app.post('/api/query', asyncRoute(async (req) => {
     writable: !!body.writable,
     limit: body.limit,
     history: registry.history,
+    actor: body.actor || 'ui',
     config: registry.config,
   });
 }));
@@ -216,7 +235,7 @@ app.post('/api/snippets/:id/run', asyncRoute(async (req) => {
   const result = await runQuery({
     connection: conn, db: targetDb, sql: boundSql, args,
     writable: !!body.writable, limit: body.limit,
-    history: registry.history, snippetId: snippet.id,
+    history: registry.history, snippetId: snippet.id, actor: body.actor || 'ui',
     config: registry.config,
   });
   return { ...result, snippet: { id: snippet.id, name: snippet.name, params: extractParams(snippet.sql) } };
@@ -226,7 +245,7 @@ app.post('/api/snippets/:id/run', asyncRoute(async (req) => {
 
 app.get('/api/history', async (req) => {
   const limit = clampInt(req.query.limit, { min: 1, max: 500, fallback: 50 });
-  return { history: registry.history.recent({ limit, server: req.query.server || null, db: req.query.db || null }) };
+  return { history: registry.history.recent({ limit, server: req.query.server || null, db: req.query.db || null, actor: req.query.actor || null }) };
 });
 
 app.delete('/api/history', async () => {
@@ -240,6 +259,37 @@ app.get('/api/preferences', async () => ({ preferences: registry.preferences.all
 app.put('/api/preferences/:key', asyncRoute(async (req) => {
   const body = ensureObject(req.body || {}, 'body');
   registry.preferences.set(req.params.key, body.value);
+  return { ok: true };
+}));
+
+// ---------- annotations ----------
+
+app.get('/api/annotations', async (req) => ({
+  annotations: registry.annotations.list({
+    server: req.query.server || undefined,
+    db: req.query.db || undefined,
+    tbl: req.query.table || undefined,
+  }),
+}));
+
+app.post('/api/annotations', asyncRoute(async (req) => {
+  const body = ensureObject(req.body, 'body');
+  required(body, ['server', 'db', 'table', 'note']);
+  return {
+    annotation: registry.annotations.upsert({
+      server: body.server, db: body.db, tbl: body.table,
+      col: body.column || null, note: body.note, source: body.source || 'human',
+    }),
+  };
+}));
+
+app.delete('/api/annotations', asyncRoute(async (req) => {
+  const body = ensureObject(req.body || {}, 'body');
+  required(body, ['server', 'db', 'table']);
+  const ok = registry.annotations.remove({
+    server: body.server, db: body.db, tbl: body.table, col: body.column || null,
+  });
+  if (!ok) throw appError(Codes.NOT_FOUND, 'Annotation not found');
   return { ok: true };
 }));
 

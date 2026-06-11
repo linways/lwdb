@@ -5,9 +5,17 @@
  * idle pools are evicted after configured TTL. All queries enforce a
  * per-statement timeout to avoid hanging on slow remote DBs.
  */
-import mysql from 'mysql2/promise';
 import { appError, Codes } from './errors.mjs';
 import { child } from './log.mjs';
+
+// mysql2 is the one heavy dependency in the CLI's import chain (~200ms).
+// Load it only when a MySQL connection is actually created so commands that
+// never touch MySQL (help, snippets, history, ...) start fast.
+let mysqlPromise = null;
+function loadMysql() {
+  mysqlPromise ??= import('mysql2/promise').then((m) => m.default);
+  return mysqlPromise;
+}
 
 const log = child('pool');
 
@@ -70,7 +78,7 @@ async function closeKey(k) {
   try { await entry.pool.end(); } catch (_) { /* ignore */ }
 }
 
-export function getPool(connection, db) {
+export async function getPool(connection, db) {
   const k = key(connection.id, db);
   const existing = pools.get(k);
   if (existing) {
@@ -84,6 +92,7 @@ export function getPool(connection, db) {
     ? healthTracker.timeoutFor(connection.id)
     : activeConfig.connectTimeoutMs;
 
+  const mysql = await loadMysql();
   const pool = mysql.createPool({
     host: connection.host,
     port: connection.port,
@@ -147,7 +156,7 @@ function decorateConnectError(err, connection) {
 }
 
 export async function listDatabases(connection) {
-  const pool = getPool(connection, null);
+  const pool = await getPool(connection, null);
   const started = Date.now();
   try {
     const timeoutMs = healthTracker?.timeoutFor(connection.id);
@@ -165,7 +174,7 @@ export async function listDatabases(connection) {
 
 export async function listTables(connection, db) {
   if (!db) throw appError(Codes.BAD_REQUEST, 'db is required');
-  const pool = getPool(connection, db);
+  const pool = await getPool(connection, db);
   const started = Date.now();
   try {
     const timeoutMs = healthTracker?.timeoutFor(connection.id);
@@ -192,7 +201,7 @@ export async function listTables(connection, db) {
  */
 export async function fetchSchema(connection, db) {
   if (!db) throw appError(Codes.BAD_REQUEST, 'db is required');
-  const pool = getPool(connection, db);
+  const pool = await getPool(connection, db);
   const started = Date.now();
   try {
     const timeoutMs = healthTracker?.timeoutFor(connection.id);
@@ -229,7 +238,7 @@ export async function fetchSchema(connection, db) {
 
 export async function describeTable(connection, db, table) {
   if (!db || !table) throw appError(Codes.BAD_REQUEST, 'db and table required');
-  const pool = getPool(connection, db);
+  const pool = await getPool(connection, db);
   const [cols] = await poolQuery(
     pool,
     `SELECT COLUMN_NAME as name, COLUMN_TYPE as type, IS_NULLABLE as nullable,
@@ -259,6 +268,7 @@ export function poolStats() {
  */
 export async function pingConnection(connection, { timeoutMs } = {}) {
   const start = Date.now();
+  const mysql = await loadMysql();
   const conn = await mysql.createConnection({
     host: connection.host,
     port: Number(connection.port) || 3306,

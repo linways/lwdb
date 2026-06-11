@@ -3,12 +3,9 @@
 // CLI defaults to quiet logging unless the user opts in.
 if (!process.env.LW_DB_LOG_LEVEL) process.env.LW_DB_LOG_LEVEL = 'warn';
 
-import { buildRegistry } from '../server/lib/registry.mjs';
 import { safeConnection } from '../server/lib/connectionStore.mjs';
-import { listDatabases, listTables, describeTable, fetchSchema, closeAll, pingConnection } from '../server/lib/pool.mjs';
-import { runQuery } from '../server/lib/runQuery.mjs';
+import { closeAll } from '../server/lib/pool.mjs';
 import { inspectSql } from '../server/lib/sqlGuard.mjs';
-import { bindParams } from '../server/lib/snippets.mjs';
 
 const AGENT_WRITES_KEY = 'agentWrites';
 
@@ -22,12 +19,12 @@ const AGENT_WRITES_KEY = 'agentWrites';
  * Returns true if the statement should run with writes enabled, throws (via die)
  * otherwise. Read-only statements always return false (no gate).
  */
-function resolveWritable(sql, registry) {
+async function resolveWritable(sql, backend) {
   let info;
   try { info = inspectSql(sql); } catch { return false; }
   if (info.allReadOnly) return false; // pure read — no gate needed
 
-  const enabled = registry.preferences.get(AGENT_WRITES_KEY, false) === true;
+  const enabled = await backend.getAgentWrites();
   if (!enabled) {
     die('Writes are disabled for the CLI/agents. A human must enable Settings → AI Agents → "Allow agent writes", then you re-run with --yes after they confirm. (code: AGENT_WRITES_DISABLED)');
   }
@@ -95,6 +92,71 @@ function die(msg, code = 1) {
   process.exit(code);
 }
 
+// Machine-readable command catalog for agents (`lwdb --help --json`). Kept in
+// sync with the switch below and the text help(). arg.required defaults false.
+async function helpJson() {
+  const { Codes } = await import('../server/lib/errors.mjs');
+  const { readFile } = await import('node:fs/promises');
+  const { fileURLToPath } = await import('node:url');
+  const { dirname, resolve, join } = await import('node:path');
+  const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+  let version = '0.0.0';
+  try { version = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version || version; } catch { /* default */ }
+
+  const a = (name, required = false) => ({ name, required });
+  const cmd = (name, group, summary, args = [], flags = {}) => ({ name, group, summary, args, flags });
+
+  return {
+    name: 'lwdb',
+    version,
+    description: 'Agent-friendly MySQL browser. Every command emits JSON when stdout is not a TTY and fails with a stable error.code.',
+    errorCodes: Object.values(Codes),
+    globalFlags: {
+      json: 'Force JSON output (automatic when stdout is not a TTY).',
+      'no-daemon': 'Skip the running lwdb server and connect directly (env: LW_DB_NO_DAEMON=1).',
+    },
+    writes: 'Writes (INSERT/UPDATE/DELETE/DDL) require the human-set "agent-writes" master switch AND a per-call --yes, and are refused on write-protected connections. Errors: AGENT_WRITES_DISABLED, CONFIRM_REQUIRED, READONLY_BLOCKED.',
+    commands: [
+      cmd('servers', 'data', 'List configured servers (alias: connections).'),
+      cmd('dbs', 'data', 'List databases on a server.', [a('server', true), a('pattern')], { latest: 'Sort descending (date-suffixed dbs).' }),
+      cmd('tables', 'data', 'List tables in a database with row estimates.', [a('server', true), a('db', true), a('pattern')]),
+      cmd('describe', 'data', 'Columns and indexes for one table.', [a('server', true), a('db', true), a('table', true)]),
+      cmd('schema', 'data', 'Bulk table→columns map (incl. PKs) for a database.', [a('server', true), a('db', true)]),
+      cmd('context', 'data', 'Compact LLM brief: tables, columns, real+inferred FKs, row counts, annotations.', [a('server', true), a('db', true)]),
+      cmd('sample', 'data', 'Return a few real rows (SELECT * LIMIT n).', [a('server', true), a('db', true), a('table', true)], { limit: 'Rows (default 5, max 100).' }),
+      cmd('profile', 'data', 'Per-column null%/distinct/min/max/top over a bounded sample.', [a('server', true), a('db', true), a('table', true)], { columns: 'Comma-separated subset.', top: 'Top values (default 5).', sample: 'Sample size (default 10000).', exact: 'Full scan instead of a sample.' }),
+      cmd('find-table', 'data', 'Search tables across every db on a server.', [a('server', true), a('pattern', true)]),
+      cmd('query', 'data', 'Run one SQL statement (read-only unless writes unlocked).', [a('server', true), a('db'), a('sql', true)], { yes: 'Confirm a write after the user approves.', limit: 'Row limit for SELECT.' }),
+      cmd('snippets', 'snippets', 'List saved query templates.', [a('pattern')]),
+      cmd('save', 'snippets', 'Create a saved query template.', [a('name', true), a('sql', true)], { description: '', tags: 'Comma-separated.', 'default-server': '', 'default-db': '' }),
+      cmd('run', 'snippets', 'Run a snippet by name/id, binding :params.', [a('name', true)], { server: '', db: '', writable: 'Confirm a write.', limit: '' }),
+      cmd('delete', 'snippets', 'Delete a snippet by name/id.', [a('name', true)]),
+      cmd('push', 'snippets', 'Bulk upsert snippets from JSON (file or stdin).', [a('file')]),
+      cmd('schema-snippets', 'snippets', 'Print the JSON shape accepted by push.'),
+      cmd('annotate', 'annotations', 'Add/update a note on a table or column (merged into context).', [a('server', true), a('db', true), a('table', true), a('column')], { note: 'The note text (required unless --rm).', source: 'human|agent', rm: 'Delete the note instead.' }),
+      cmd('annotations', 'annotations', 'List annotations.', [a('server'), a('db'), a('table')]),
+      cmd('history', 'history', 'Recent query history (audit log).', [], { limit: '', server: '', db: '', actor: 'Filter by ui|cli|mcp.' }),
+      cmd('history-clear', 'history', 'Wipe the query history.'),
+      cmd('backup', 'backup', 'Back up the SQLite store (sqlite or json).', [], { out: '', format: 'sqlite|json' }),
+      cmd('restore', 'backup', 'Restore from a backup file.', [a('path', true)], { merge: '' }),
+      cmd('conn-add', 'connections', 'Add a connection.', [], { label: 'required', host: 'required', user: 'required', port: '', password: '', color: '', group: '', notes: '', local: '', protected: 'Refuse all agent writes to this connection.' }),
+      cmd('conn-edit', 'connections', 'Edit a connection.', [a('id', true)], { label: '', host: '', port: '', user: '', password: '', color: '', group: '', notes: '', local: '', remote: '', protected: 'Mark write-protected.', unprotected: 'Clear write protection.' }),
+      cmd('conn-rm', 'connections', 'Delete a connection.', [a('id', true)], { yes: 'required' }),
+      cmd('conn-test', 'connections', 'Ping a connection (saved id or inline host/user).', [a('id')], { host: '', user: '', port: '', password: '' }),
+      cmd('import', 'connections', 'Bulk upsert connections from JSON.', [a('file', true)]),
+      cmd('export', 'connections', 'Dump connections (includes passwords).', [a('file')]),
+      cmd('agent-writes', 'system', 'Show or set the master write switch.', [a('on|off')]),
+      cmd('secure', 'system', 'Credential encryption status / migrate legacy plaintext passwords.', [a('status|migrate')]),
+      cmd('serve', 'system', 'Run the HTTP API + Web UI on :4321.'),
+      cmd('mcp', 'system', 'Run the MCP server over stdio for AI clients.'),
+      cmd('doctor', 'system', 'Diagnose the install.'),
+      cmd('update', 'system', 'git pull + reinstall deps + refresh skill.'),
+      cmd('update-skill', 'system', 'Refresh only the agent skill snapshot.'),
+      cmd('uninstall', 'system', 'Remove CLI link + skill symlinks.'),
+    ],
+  };
+}
+
 function help() {
   process.stdout.write(`lwdb CLI
 
@@ -107,14 +169,18 @@ DATA
   tables <server> <db> [pattern]
   describe <server> <db> <table>
   schema <server> <db>              # bulk table -> columns map (incl. PK)
+  context <server> <db>             # compact LLM brief: tables, cols, keys, inferred FKs, notes
+  sample <server> <db> <table>      # SELECT * LIMIT n (n default 5, --limit=N)
+  profile <server> <db> <table>     # per-column nulls/distinct/min/max/top [--columns=a,b] [--exact]
   find-table <server> <pattern>     # search tables across every db on a server
   query <server> [db] "<sql>"       [--yes] [--limit=N]
                                        # writes need: agent-writes ON + --yes (user-confirmed)
 
 CONNECTIONS
   servers | connections             # list connections
-  conn-add --label= --host= --user= [--port=3306] [--password=] [--color=] [--group=] [--notes=] [--local]
-  conn-edit <id> [--label=] [--host=] [--port=] [--user=] [--password=] [--color=] [--group=] [--notes=] [--local|--remote]
+  conn-add --label= --host= --user= [--port=3306] [--password=] [--color=] [--group=] [--notes=] [--local] [--protected]
+  conn-edit <id> [--label=] [--host=] [--port=] [--user=] [--password=] [--color=] [--group=] [--notes=] [--local|--remote] [--protected|--unprotected]
+                                       # --protected: refuse ALL agent writes to this connection (e.g. prod)
   conn-rm <id> --yes
   conn-test <id>                    # or: --host= --user= [--port=] [--password=]
   import <file.json>                # bulk upsert connections (universal format)
@@ -123,6 +189,10 @@ CONNECTIONS
 SERVER (GUI backend)
   serve                             # run the HTTP API + Web UI on :4321
                                        # (this is what the desktop app launches)
+
+MCP (Model Context Protocol — for any AI client)
+  mcp                               # run the MCP server over stdio
+                                       # config one line: { "command": "lwdb", "args": ["mcp"] }
 
 SAVED QUERIES
   snippets [pattern]
@@ -134,8 +204,12 @@ SAVED QUERIES
   push [file]                       # bulk upsert from JSON (file or stdin)
   schema-snippets                   # print expected JSON shape (for AI agents)
 
+ANNOTATIONS (semantic notes merged into context)
+  annotate <server> <db> <table> [column] --note="..."   # add/update a note (--rm to delete)
+  annotations [server] [db] [table]                       # list notes
+
 HISTORY
-  history [--limit=N] [--server=...] [--db=...]
+  history [--limit=N] [--server=...] [--db=...] [--actor=ui|cli|mcp]
   history-clear
 
 BACKUP / RESTORE
@@ -148,10 +222,16 @@ SYSTEM
   update-skill                      # refresh only the agent skill snapshot
   uninstall                         # remove CLI link + skill symlinks
   agent-writes [on|off]             # show or set the master switch for CLI/agent writes
+  secure [status|migrate]           # passwords are AES-256-GCM encrypted at rest; migrate re-encrypts legacy rows
   (first-time install: npm run setup  — or: node install.mjs install)
 
 OUTPUT
   --json        Force JSON (auto when not a TTY).
+
+DAEMON
+  MySQL commands reuse a running lwdb server (desktop app / lwdb serve) on
+  127.0.0.1:4321 automatically — warm pools, same output, same write gate.
+  --no-daemon   Skip detection and connect directly (env: LW_DB_NO_DAEMON=1).
 
 EXAMPLES
   lwdb dbs V4-server84 stthomas --latest
@@ -211,15 +291,38 @@ async function runInstaller(sub) {
 
 const INSTALLER_COMMANDS = new Set(['install', 'update', 'uninstall', 'update-skill', 'doctor']);
 
+// Commands worth forwarding to an already-running lwdb server: they reuse its
+// warm MySQL pools (no per-invocation connect) and skip loading mysql2 here.
+// SQLite-only commands (servers, snippets, history, ...) stay local — they're
+// cheaper than the HTTP hop. Lifecycle/store-mutating commands always run locally.
+const DAEMON_COMMANDS = new Set([
+  'dbs', 'tables', 'describe', 'schema', 'context', 'sample', 'profile',
+  'find-table', 'query', 'run', 'conn-test',
+]);
+
+async function pickBackend() {
+  const allowDaemon = !flags['no-daemon'] && DAEMON_COMMANDS.has(cmd);
+  const { resolveBackend } = await import('../server/lib/backend.mjs');
+  const { backend } = await resolveBackend({ allowDaemon, actor: 'cli' });
+  return backend;
+}
+
 async function main() {
-  if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') { help(); return; }
+  if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') {
+    // Help stays human-readable even when piped; only an explicit --json yields
+    // the machine catalog (so `lwdb --help | less` still shows text).
+    if (flags.json) { process.stdout.write(JSON.stringify(await helpJson(), null, 2) + '\n'); return; }
+    help();
+    return;
+  }
   if (INSTALLER_COMMANDS.has(cmd)) return runInstaller(cmd);
-  const registry = await buildRegistry();
+  const backend = await pickBackend();
+  const registry = backend.registry || null;
 
   switch (cmd) {
     case 'servers':
     case 'connections': {
-      emit(registry.listConnections().map(safeConnection), {
+      emit(await backend.listServers(), {
         table: true, columns: ['id', 'label', 'kind', 'host', 'port', 'user'],
       });
       break;
@@ -228,8 +331,7 @@ async function main() {
     case 'dbs': {
       const [server, pattern] = positional;
       if (!server) die('usage: lwdb dbs <server> [pattern]');
-      const conn = registry.getConnection(server);
-      let dbs = await listDatabases(conn);
+      let dbs = await backend.listDatabases(server);
       if (pattern) {
         const p = pattern.toLowerCase();
         dbs = dbs.filter((d) => d.toLowerCase().includes(p));
@@ -242,8 +344,7 @@ async function main() {
     case 'tables': {
       const [server, db, pattern] = positional;
       if (!server || !db) die('usage: lwdb tables <server> <db> [pattern]');
-      const conn = registry.getConnection(server);
-      let tables = await listTables(conn, db);
+      let tables = await backend.listTables(server, db);
       if (pattern) {
         const p = pattern.toLowerCase();
         tables = tables.filter((t) => t.name.toLowerCase().includes(p));
@@ -255,8 +356,7 @@ async function main() {
     case 'describe': {
       const [server, db, table] = positional;
       if (!server || !db || !table) die('usage: lwdb describe <server> <db> <table>');
-      const conn = registry.getConnection(server);
-      const desc = await describeTable(conn, db, table);
+      const desc = await backend.describeTable(server, db, table);
       if (wantJson) { emit(desc); break; }
       process.stdout.write(`\n${db}.${table} — columns\n`);
       printTable(desc.columns, ['name', 'type', 'nullable', 'keyKind', 'defaultValue', 'extra']);
@@ -268,8 +368,7 @@ async function main() {
     case 'schema': {
       const [server, db] = positional;
       if (!server || !db) die('usage: lwdb schema <server> <db>');
-      const conn = registry.getConnection(server);
-      const schema = await fetchSchema(conn, db);
+      const schema = await backend.fetchSchema(server, db);
       if (wantJson) { emit(schema); break; }
       const rows = Object.entries(schema.tables).map(([name, cols]) => ({
         table: name,
@@ -281,16 +380,70 @@ async function main() {
       break;
     }
 
+    case 'context': {
+      const [server, db] = positional;
+      if (!server || !db) die('usage: lwdb context <server> <db>');
+      const ctx = await backend.fetchContext(server, db);
+      if (wantJson) { emit(ctx); break; }
+      process.stdout.write(`${ctx.db} @ ${ctx.server} — ${ctx.tableCount} tables · ${ctx.columnCount} columns\n`);
+      for (const [prefix, members] of Object.entries(ctx.groups || {})) {
+        process.stdout.write(`  group ${prefix}: ${members.length} tables\n`);
+      }
+      for (const [name, t] of Object.entries(ctx.tables)) {
+        const rows = t.rows == null ? '' : ` (~${t.rows} rows)`;
+        const comment = t.comment ? `  // ${t.comment}` : '';
+        process.stdout.write(`\n## ${name}${rows}${comment}\n`);
+        for (const c of t.columns) process.stdout.write(`  ${c}\n`);
+      }
+      if (ctx.notes?.length) process.stdout.write(`\n${ctx.notes.map((n) => `note: ${n}`).join('\n')}\n`);
+      break;
+    }
+
+    case 'sample': {
+      const [server, db, table] = positional;
+      if (!server || !db || !table) die('usage: lwdb sample <server> <db> <table> [--limit=5]');
+      const { buildSampleSql } = await import('../server/lib/profile.mjs');
+      const result = await backend.runQuery({
+        server, db, sql: buildSampleSql(db, table, flags.limit), writable: false,
+      });
+      if (wantJson) emit(result);
+      else {
+        if (result.rows?.length) printTable(result.rows);
+        else process.stdout.write('(no rows)\n');
+      }
+      break;
+    }
+
+    case 'profile': {
+      const [server, db, table] = positional;
+      if (!server || !db || !table) die('usage: lwdb profile <server> <db> <table> [--columns=a,b] [--top=5] [--sample=10000] [--exact]');
+      const prof = await backend.profileTable(server, db, table, {
+        columns: flags.columns ? String(flags.columns).split(',').map((s) => s.trim()).filter(Boolean) : null,
+        top: flags.top ? parseInt(flags.top, 10) : undefined,
+        sampleSize: flags.sample ? parseInt(flags.sample, 10) : undefined,
+        exact: !!flags.exact,
+      });
+      if (wantJson) { emit(prof); break; }
+      process.stdout.write(`${prof.db}.${prof.table} @ ${prof.server} — ${prof.rowsScanned} rows scanned${prof.exact ? ' (exact)' : ' (sample)'}\n\n`);
+      const rows = Object.entries(prof.columns).map(([name, s]) => ({
+        column: name, type: s.type, nulls: `${s.nullPct}%`, distinct: s.distinct,
+        min: s.min, max: s.max,
+        top: s.top ? s.top.map((t) => `${t.v}(${t.n})`).join(' ') : '',
+      }));
+      printTable(rows, ['column', 'type', 'nulls', 'distinct', 'min', 'max', 'top']);
+      if (prof.notes?.length) process.stdout.write(`\n${prof.notes.map((n) => `note: ${n}`).join('\n')}\n`);
+      break;
+    }
+
     case 'find-table': {
       const [server, pattern] = positional;
       if (!server || !pattern) die('usage: lwdb find-table <server> <pattern>');
-      const conn = registry.getConnection(server);
-      const dbs = await listDatabases(conn);
+      const dbs = await backend.listDatabases(server);
       const p = pattern.toLowerCase();
       const matches = [];
       for (const db of dbs) {
         try {
-          const tables = await listTables(conn, db);
+          const tables = await backend.listTables(server, db);
           for (const t of tables) {
             if (t.name.toLowerCase().includes(p)) matches.push({ db, table: t.name, rowsApprox: t.rowsApprox });
           }
@@ -307,15 +460,12 @@ async function main() {
       if (positional.length >= 2) { db = positional[0]; sql = positional.slice(1).join(' '); }
       else if (positional.length === 1) { sql = positional[0]; }
       if (!sql) die('SQL required');
-      const conn = registry.getConnection(server);
-      const result = await runQuery({
-        connection: conn,
+      const result = await backend.runQuery({
+        server,
         db,
         sql,
-        writable: resolveWritable(sql, registry),
+        writable: await resolveWritable(sql, backend),
         limit: flags.limit ? parseInt(flags.limit, 10) : undefined,
-        history: registry.history,
-        config: registry.config,
       });
       if (wantJson) emit(result);
       else {
@@ -366,22 +516,20 @@ async function main() {
     case 'run': {
       const key = positional.shift();
       if (!key) die('usage: lwdb run <snippet-name-or-id> [--param=value ...]');
-      const snippet = findSnippet(registry.snippets.list(), key);
+      const snippet = findSnippet(await backend.listSnippets(), key);
       if (!snippet) die(`snippet not found: ${key}`);
       const targetServer = flags.server || snippet.defaultServer;
       const targetDb = flags.db || snippet.defaultDb;
       if (!targetServer) die('--server required (snippet has no defaultServer)');
       const { params, ops } = pickParams(flags);
-      const { sql: boundSql, args: boundArgs } = bindParams(snippet.sql, params, ops);
-      const conn = registry.getConnection(targetServer);
-      const result = await runQuery({
-        connection: conn, db: targetDb, sql: boundSql, args: boundArgs,
-        writable: resolveWritable(boundSql, registry),
+      // Binding :params never changes the statement verb, so gating on the raw
+      // snippet SQL is equivalent to gating on the bound SQL.
+      const result = await backend.runSnippet(snippet, {
+        server: targetServer, db: targetDb, params, ops,
+        writable: await resolveWritable(snippet.sql, backend),
         limit: flags.limit ? parseInt(flags.limit, 10) : undefined,
-        history: registry.history, snippetId: snippet.id,
-        config: registry.config,
       });
-      if (wantJson) emit({ ...result, snippet: { id: snippet.id, name: snippet.name } });
+      if (wantJson) emit(result);
       else {
         process.stdout.write(`★ ${snippet.name}  →  ${targetServer}.${targetDb || '(no db)'}\n`);
         if (result.rows && result.rows.length) printTable(result.rows);
@@ -393,14 +541,41 @@ async function main() {
 
     case 'history': {
       const limit = flags.limit ? parseInt(flags.limit, 10) : 20;
-      const entries = registry.history.recent({ limit, server: flags.server || null, db: flags.db || null });
-      emit(entries, { table: true, columns: ['startedAt', 'server', 'db', 'verb', 'elapsedMs', 'rowCount', 'sql'] });
+      const entries = registry.history.recent({
+        limit, server: flags.server || null, db: flags.db || null, actor: flags.actor || null,
+      });
+      emit(entries, { table: true, columns: ['startedAt', 'actor', 'server', 'db', 'verb', 'elapsedMs', 'rowCount', 'sql'] });
       break;
     }
 
     case 'history-clear': {
       registry.history.clear();
       emit({ cleared: true });
+      break;
+    }
+
+    case 'annotate': {
+      // annotate <server> <db> <table> [column] --note="..."  (or --rm to delete)
+      const [server, db, table, column] = positional;
+      if (!server || !db || !table) die('usage: lwdb annotate <server> <db> <table> [column] --note="..."  [--rm]');
+      if (flags.rm) {
+        const ok = registry.annotations.remove({ server, db, tbl: table, col: column || null });
+        if (!ok) die(`no annotation on ${db}.${table}${column ? `.${column}` : ''}`);
+        emit({ removed: { server, db, table, column: column || null } });
+        break;
+      }
+      if (!flags.note || flags.note === true) die('--note="..." required (or --rm to delete)');
+      const annotation = registry.annotations.upsert({
+        server, db, tbl: table, col: column || null, note: flags.note, source: flags.source || 'human',
+      });
+      emit(annotation);
+      break;
+    }
+
+    case 'annotations': {
+      const [server, db, table] = positional;
+      const list = registry.annotations.list({ server: server || undefined, db: db || undefined, tbl: table || undefined });
+      emit(list, { table: true, columns: ['server', 'db', 'tbl', 'col', 'note', 'source'] });
       break;
     }
 
@@ -497,9 +672,26 @@ async function main() {
       break;
     }
 
+    case 'secure': {
+      const sub = (positional.shift() || 'status').toLowerCase();
+      if (sub === 'migrate') {
+        const { migrated } = registry.connectionStore.migrateEncryption();
+        emit({ migrated, ...registry.connectionStore.auditEncryption() });
+      } else if (sub === 'status') {
+        emit({
+          keySource: registry.keySource,
+          keyPath: registry.keyPath,
+          ...registry.connectionStore.auditEncryption(),
+        });
+      } else {
+        die('usage: lwdb secure [status|migrate]');
+      }
+      break;
+    }
+
     case 'conn-add': {
       if (!flags.label || !flags.host || !flags.user) {
-        die('usage: lwdb conn-add --label=.. --host=.. --user=.. [--port=3306] [--password=..] [--color=..] [--group=..] [--notes=..] [--local]');
+        die('usage: lwdb conn-add --label=.. --host=.. --user=.. [--port=3306] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--protected]');
       }
       const conn = registry.connectionStore.create({
         label: flags.label,
@@ -511,6 +703,7 @@ async function main() {
         group: flags.group || null,
         notes: flags.notes || null,
         kind: flags.local ? 'local' : undefined,
+        writeProtected: !!flags.protected,
       });
       emit(safeConnection(conn));
       break;
@@ -526,6 +719,8 @@ async function main() {
       if ('port' in flags) patch.port = parseInt(flags.port, 10);
       if (flags.local) patch.kind = 'local';
       if (flags.remote) patch.kind = 'remote';
+      if (flags.protected) patch.writeProtected = true;
+      if (flags.unprotected) patch.writeProtected = false;
       const conn = registry.connectionStore.update(id, patch);
       if (!conn) die(`connection not found: ${id}`);
       emit(safeConnection(conn));
@@ -543,11 +738,11 @@ async function main() {
 
     case 'conn-test': {
       const id = positional.shift();
-      let conn;
-      if (id) conn = registry.connectionStore.get(id);
-      else if (flags.host && flags.user) conn = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
-      if (!conn) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..])');
-      try { emit(await pingConnection(conn, { timeoutMs: 5000 })); }
+      let spec = null;
+      if (id) spec = { id };
+      else if (flags.host && flags.user) spec = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
+      if (!spec) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..])');
+      try { emit(await backend.testConnection(spec)); }
       catch (err) { die(`connect failed: ${err.message}`); }
       break;
     }
@@ -591,6 +786,15 @@ if (cmd === 'serve') {
   // bypass the CLI's try/finally(closeAll) wrapper. Importing the module starts
   // it listening and keeps the event loop alive; control never returns here.
   await import('../server/index.mjs');
+} else if (cmd === 'mcp') {
+  // Long-lived MCP server over stdio. stdout is the JSON-RPC channel — never
+  // emit anything else there. Logs already go to stderr (LW_DB_LOG_LEVEL=warn).
+  const { runMcp } = await import('../server/mcp.mjs');
+  try {
+    await runMcp();
+  } finally {
+    await closeAll();
+  }
 } else {
   try {
     await main();

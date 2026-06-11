@@ -4,9 +4,12 @@
  */
 import { ConnectionStore } from './connectionStore.mjs';
 import { openDb } from './db.mjs';
+import { loadMasterKey } from './masterKey.mjs';
+import { makeCodec } from './secret.mjs';
 import { SnippetStore } from './snippets.mjs';
 import { HistoryStore } from './history.mjs';
 import { PreferenceStore } from './preferences.mjs';
+import { AnnotationStore } from './annotations.mjs';
 import { loadConfig } from './config.mjs';
 import { configurePool, setHealthTracker } from './pool.mjs';
 import { ConnectionHealth } from './connectionHealth.mjs';
@@ -36,12 +39,14 @@ export async function buildRegistry() {
   const db = await openDb(config.sqlitePath);
   log.info('sqlite opened', { path: config.sqlitePath });
 
-  const connectionStore = new ConnectionStore(db);
-  log.info('connections', { count: connectionStore.all().length });
+  const { key, source: keySource, path: keyPath } = loadMasterKey();
+  const connectionStore = new ConnectionStore(db, { secret: makeCodec(key) });
+  log.info('connections', { count: connectionStore.all().length, keySource });
 
   const snippets = new SnippetStore(db);
   const history = new HistoryStore(db, { max: config.historyMax });
   const preferences = new PreferenceStore(db);
+  const annotations = new AnnotationStore(db);
 
   function getConnection(id) {
     const c = connectionStore.get(id);
@@ -58,10 +63,13 @@ export async function buildRegistry() {
     host: config.host,
     projectRoot: config.projectRoot,
     connectionStore,
+    keySource,
+    keyPath: keyPath || null,
     listConnections: () => connectionStore.all(),
     snippets,
     history,
     preferences,
+    annotations,
     connectionHealth,
     db,
     getConnection,
