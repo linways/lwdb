@@ -61,6 +61,28 @@ const MIGRATIONS = [
      updated_at TEXT NOT NULL
    );
    CREATE INDEX IF NOT EXISTS idx_connections_kind ON connections(kind);`,
+
+  // v3 — annotations (semantic notes on tables/columns, merged into `lwdb context`)
+  `CREATE TABLE IF NOT EXISTS annotations (
+     id TEXT PRIMARY KEY,
+     server TEXT NOT NULL,
+     db TEXT NOT NULL,
+     tbl TEXT NOT NULL,
+     col TEXT,
+     note TEXT NOT NULL,
+     source TEXT NOT NULL DEFAULT 'human',
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE UNIQUE INDEX IF NOT EXISTS idx_annotations_target
+     ON annotations(server, db, tbl, IFNULL(col, ''));`,
+
+  // v4 — per-connection write protection: a protected connection refuses agent
+  // writes regardless of the global agent-writes switch.
+  `ALTER TABLE connections ADD COLUMN write_protected INTEGER NOT NULL DEFAULT 0;`,
+
+  // v5 — attribution: which interface ran each query (ui / cli / mcp).
+  `ALTER TABLE query_history ADD COLUMN actor TEXT;`,
 ];
 
 export async function openDb(dbPath) {
