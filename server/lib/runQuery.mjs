@@ -21,6 +21,7 @@ export async function runQuery({
   limit,
   history = null,
   snippetId = null,
+  actor = null,
   config,
 }) {
   const defaultLimit = config?.defaultSelectLimit ?? 500;
@@ -28,6 +29,12 @@ export async function runQuery({
 
   if (typeof sql !== 'string' || !sql.trim()) {
     throw appError(Codes.EMPTY_SQL, 'sql is required');
+  }
+  // A write-protected connection refuses writes no matter what — the last line
+  // of defense, enforced for every surface (UI, CLI, daemon, MCP) at this one
+  // chokepoint, even if an upstream gate was bypassed.
+  if (writable && connection?.writeProtected) {
+    throw appError(Codes.READONLY_BLOCKED, `Connection ${connection.id} is write-protected; writes are refused regardless of the agent-writes switch.`);
   }
   if (!writable) assertReadOnly(sql);
 
@@ -42,7 +49,7 @@ export async function runQuery({
     ? applyImplicitLimit(originalStmt, effectiveLimit)
     : originalStmt;
 
-  const pool = getPool(connection, db);
+  const pool = await getPool(connection, db);
   const started = Date.now();
   let rows, fields, dbError;
   let attempts = 0;
@@ -76,6 +83,7 @@ export async function runQuery({
         ok: !dbError,
         error: dbError ? dbError.message : null,
         snippetId,
+        actor,
       });
     } catch (_) { /* history is best-effort */ }
   }
