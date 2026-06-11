@@ -49,6 +49,7 @@
     "install:full": "node install.mjs install",
     "doctor": "node install.mjs doctor",
     "test": "node --no-warnings=ExperimentalWarning --test --test-reporter=spec \"tests/*.test.mjs\"",
+    "test:ci": "node --no-warnings=ExperimentalWarning --test --test-concurrency=1 --test-reporter=spec \"tests/*.test.mjs\"",
     "e2e:diagnose": "node tests/e2e/diagnose-results.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
