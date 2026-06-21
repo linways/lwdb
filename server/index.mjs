@@ -42,6 +42,32 @@ const app = Fastify({
 await app.register(fastifyRateLimit, { global: false });
 const RATE_LIMIT = { max: 30, timeWindow: '1 minute' };
 
+// Local-only hardening. This server binds to loopback and has no user auth, so
+// the realistic threat is a web page in the user's browser reaching it (CSRF /
+// DNS-rebinding) — including the SQL and open-external routes. Fail closed:
+// reject any request whose Host or (browser-supplied) Origin is not loopback.
+// Non-browser callers (CLI, the Tauri health check) send no Origin and pass;
+// the app itself is loopback in every mode (prod 127.0.0.1:4321, dev via the
+// vite proxy on localhost), so it's unaffected.
+const LOOPBACK = /^(127\.0\.0\.1|localhost|\[::1\]|::1)(:\d+)?$/i;
+app.addHook('onRequest', (req, reply, done) => {
+  if (!LOOPBACK.test(req.headers.host || '')) {
+    reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'non-loopback Host rejected' } });
+    return;
+  }
+  const origin = req.headers.origin;
+  if (origin) {
+    let host = null;
+    try { host = new URL(origin).host; } catch (_) { /* malformed → reject */ }
+    if (!host || !LOOPBACK.test(host)) {
+      reply.code(403).send({ error: { code: 'FORBIDDEN', message: 'cross-origin request rejected' } });
+      return;
+    }
+  }
+  done();
+});
+log.warn('API is loopback-only with no user auth — do not expose to a network', {});
+
 app.addHook('onResponse', (req, reply, done) => {
   log.info('req', {
     id: req.id,
