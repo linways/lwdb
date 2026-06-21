@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { store, actions } from '../store.js';
 import { tableFromSql, rowToInsert, rowToUpdate, rowToDelete } from '../sqlGen.js';
 import ContextMenu from './ContextMenu.vue';
@@ -32,6 +32,22 @@ const filtered = computed(() => {
 });
 
 const visibleRows = computed(() => filtered.value.slice(visibleStart.value, visibleEnd.value));
+
+// Reset the virtual window + scroll to top whenever the result or filter
+// changes — otherwise a leftover window from a previous (longer) result can
+// land past the new row count, showing only a row or two of many.
+watch([result, filter], () => {
+  visibleStart.value = 0;
+  visibleEnd.value = 60;
+  selectedCell.value = null;
+  selectedRow.value = null;
+  nextTick(() => {
+    if (wrapRef.value) {
+      wrapRef.value.scrollTop = 0;
+      onScroll({ target: wrapRef.value });
+    }
+  });
+});
 const totalHeight = computed(() => filtered.value.length * rowHeight);
 const offsetTop = computed(() => visibleStart.value * rowHeight);
 
@@ -83,6 +99,38 @@ function copyJson() {
 
 const contextMenu = ref(null); // { x, y, items }
 const valueViewer = ref(null); // { column, raw, pretty, isJson }
+const selectedCell = ref(null); // { row, col } — single-click selects; Ctrl/Cmd+C copies
+const selectedRow = ref(null);  // a row object — selected by clicking its # gutter
+
+// A cell and a row selection are mutually exclusive.
+function selectCell(row, col) {
+  selectedCell.value = { row, col };
+  selectedRow.value = null;
+}
+function selectRow(row) {
+  selectedRow.value = row;
+  selectedCell.value = null;
+}
+
+// Tab-separated row values (no header) — pastes cleanly into a spreadsheet.
+function rowTsv(row) {
+  return cols.value.map((c) => cellRaw(row[c])).join('\t');
+}
+
+// Copy the selected cell or row on Ctrl/Cmd+C — unless the user has a real text
+// selection (then let the browser copy that instead).
+function onKeydown(e) {
+  if (!(e.ctrlKey || e.metaKey) || (e.key !== 'c' && e.key !== 'C')) return;
+  if (window.getSelection?.().toString()) return;
+  if (selectedCell.value) {
+    const { row, col } = selectedCell.value;
+    copy(cellRaw(row[col]), `Copied ${col}`);
+  } else if (selectedRow.value) {
+    copy(rowTsv(selectedRow.value), 'Copied row');
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKeydown));
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 async function copy(text, label = 'Copied to clipboard') {
   try {
@@ -115,13 +163,48 @@ function prettyValue(v) {
 function openValueViewer(row, col) {
   const v = row[col];
   const { pretty, isJson } = prettyValue(v);
+  const table = tableFromSql(result.value?.sql || '');
+  const pks = (table && store.schema?.primaryKeys?.[table]) || [];
   valueViewer.value = {
     column: col,
+    row,
+    table,
+    pks,
     raw: cellRaw(v),
+    draft: cellRaw(v),
     pretty,
     isJson,
     isNull: v === null || v === undefined,
+    saving: false,
   };
+}
+
+function unlockWrites() {
+  store.writable = true;
+  actions.toast('Writes unlocked — edits will modify the database', 'warn');
+}
+
+// Prettify the JSON draft in place (no-op if it isn't valid JSON).
+function formatDraft() {
+  try { valueViewer.value.draft = JSON.stringify(JSON.parse(valueViewer.value.draft), null, 2); }
+  catch (_) { actions.toast('Not valid JSON', 'warn'); }
+}
+
+// Persist the edited value back to the DB, then reflect it in the grid.
+async function saveCell() {
+  const vv = valueViewer.value;
+  if (!vv || vv.saving || vv.draft === vv.raw) return;
+  if (!store.writable) { actions.toast('Unlock writes first (read-only)', 'warn'); return; }
+  vv.saving = true;
+  try {
+    await actions.updateCell({ table: vv.table, pks: vv.pks, row: vv.row, col: vv.column, newValue: vv.draft });
+    vv.row[vv.column] = vv.draft; // reflect in the grid without a re-query
+    actions.toast(`Updated ${vv.column}`, 'good');
+    valueViewer.value = null;
+  } catch (e) {
+    actions.toast(`Update failed: ${e.message}`, 'error');
+    if (valueViewer.value) valueViewer.value.saving = false;
+  }
 }
 
 function rowAsCsv(row) {
@@ -292,6 +375,9 @@ function downloadCsv() {
         >
           <thead>
             <tr>
+              <th class="rownum">
+                #
+              </th>
               <th
                 v-for="c in cols"
                 :key="c"
@@ -304,15 +390,24 @@ function downloadCsv() {
             <tr
               v-for="(r, idx) in visibleRows"
               :key="visibleStart + idx"
+              :class="{ rowsel: selectedRow === r }"
               :style="{ height: rowHeight + 'px' }"
             >
               <td
+                class="rownum"
+                title="Click to select row · ⌘/Ctrl+C to copy"
+                @click="selectRow(r)"
+              >
+                {{ visibleStart + idx + 1 }}
+              </td>
+              <td
                 v-for="c in cols"
                 :key="c"
-                :class="{ null: r[c] === null || r[c] === undefined, num: isNumeric(r[c]) }"
+                :class="{ null: r[c] === null || r[c] === undefined, num: isNumeric(r[c]), selected: selectedCell && selectedCell.row === r && selectedCell.col === c }"
                 :style="{ maxWidth: (store.prefs.maxCellWidth || 360) + 'px' }"
-                :title="(fmt(r[c]) || '') + '\n\n(double-click to view · right-click for more)'"
+                :title="(fmt(r[c]) || '') + '\n\n(click to select · ⌘/Ctrl+C to copy · double-click to view)'"
                 @contextmenu="openCellMenu($event, r, c)"
+                @click="selectCell(r, c)"
                 @dblclick="openValueViewer(r, c)"
               >
                 {{ r[c] === null || r[c] === undefined ? nullLabel() : fmt(r[c]) }}
@@ -343,35 +438,77 @@ function downloadCsv() {
           <span class="vv-len">{{ valueViewer.raw.length }} chars</span>
         </h2>
         <div class="vv-body">
-          <pre v-if="!valueViewer.isNull">{{ valueViewer.pretty }}</pre>
-          <div
-            v-else
-            class="vv-null"
+          <textarea
+            v-model="valueViewer.draft"
+            class="vv-edit"
+            spellcheck="false"
+            :placeholder="valueViewer.isNull ? 'NULL' : ''"
+          />
+        </div>
+        <div
+          v-if="!store.writable && valueViewer.draft !== valueViewer.raw"
+          class="vv-readonly"
+        >
+          🔒 lwdb is in <strong>read-only</strong> mode — your edit won't be saved until you unlock writes.
+          <button
+            class="btn warn"
+            @click="unlockWrites"
           >
-            NULL
-          </div>
+            Unlock writes
+          </button>
         </div>
         <div class="footer">
+          <span
+            class="vv-edit-note"
+            :class="{ warn: valueViewer.table && !store.writable }"
+          >
+            <template v-if="!valueViewer.table">
+              Read-only — no single table detected in the query
+            </template>
+            <template v-else-if="!store.writable">
+              🔒 Read-only mode — unlock writes to edit
+            </template>
+            <template v-else-if="!valueViewer.pks.length">
+              ⚠ no primary key — matches by full row
+            </template>
+            <template v-else>
+              Editing by {{ valueViewer.pks.join(', ') }}
+            </template>
+          </span>
           <div
             class="spacer"
             style="flex:1"
           />
           <button
-            class="btn ghost"
-            :disabled="valueViewer.isNull"
-            @click="copy(valueViewer.raw, 'Value copied')"
-          >
-            Copy raw
-          </button>
-          <button
             v-if="valueViewer.isJson"
             class="btn ghost"
-            @click="copy(valueViewer.pretty, 'Formatted JSON copied')"
+            @click="formatDraft"
           >
-            Copy formatted
+            Format
           </button>
           <button
+            class="btn ghost"
+            @click="copy(valueViewer.draft, 'Value copied')"
+          >
+            Copy
+          </button>
+          <button
+            v-if="valueViewer.table && !store.writable"
+            class="btn warn"
+            @click="unlockWrites"
+          >
+            Unlock to edit
+          </button>
+          <button
+            v-else
             class="btn primary"
+            :disabled="!valueViewer.table || valueViewer.draft === valueViewer.raw || valueViewer.saving"
+            @click="saveCell"
+          >
+            {{ valueViewer.saving ? 'Updating…' : 'Update' }}
+          </button>
+          <button
+            class="btn ghost"
             @click="valueViewer = null"
           >
             Done
@@ -383,6 +520,16 @@ function downloadCsv() {
 </template>
 
 <style scoped>
+/* must beat zebra/hover bg rules (higher specificity) — selection always shows */
+.grid td.selected { background: var(--sel) !important; color: #fff; }
+.grid tr.rowsel td { background: var(--sel) !important; color: #fff; }
+/* row-number gutter */
+.grid th.rownum, .grid td.rownum {
+  width: 1%; white-space: nowrap; text-align: right;
+  color: var(--text-faint); background: var(--bg-3);
+  user-select: none; cursor: pointer; font-variant-numeric: tabular-nums;
+}
+.grid tr.rowsel td.rownum { color: #fff; }
 .value-viewer { width: min(760px, 100%); max-height: 82vh; }
 .value-viewer h2 {
   display: flex; align-items: center; gap: 10px;
@@ -398,6 +545,24 @@ function downloadCsv() {
   flex: 1; overflow: auto; padding: 12px 16px;
   background: var(--bg);
 }
+.value-viewer .vv-edit {
+  width: 100%; min-height: 220px; resize: vertical;
+  box-sizing: border-box; padding: 10px 12px;
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--r);
+  color: var(--text); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.5;
+  white-space: pre; tab-size: 2;
+}
+.value-viewer .vv-edit:focus { border-color: var(--accent-dim); outline: none; }
+.value-viewer .vv-edit-note { font-size: 11px; color: var(--text-faint); }
+.value-viewer .vv-edit-note.warn { color: var(--warn); font-weight: 600; }
+.value-viewer .vv-readonly {
+  display: flex; align-items: center; gap: 12px;
+  margin: 0 16px; padding: 8px 12px;
+  font-size: 12px; color: var(--text);
+  background: rgba(245, 181, 74, 0.12);
+  border: 1px solid var(--warn); border-radius: var(--r);
+}
+.value-viewer .vv-readonly .btn { margin-left: auto; }
 .value-viewer .vv-body pre {
   margin: 0;
   font-family: var(--font-mono);

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue';
+import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { store, actions, activeTab } from '../store.js';
 import QueryEditor from './QueryEditor.vue';
 import ResultsView from './ResultsView.vue';
@@ -70,6 +70,25 @@ function snippetMeta() {
   if (!activeTab.value?.snippetId) return null;
   return store.snippets.find((s) => s.id === activeTab.value.snippetId) || null;
 }
+
+// --- Tab search / recently-closed reopen ---
+const tabSearch = ref(false);
+const tabQuery = ref('');
+const tabSearchInput = ref(null);
+
+const matchedTabs = computed(() => {
+  const q = tabQuery.value.trim().toLowerCase();
+  const f = (t) => !q || (t.title || '').toLowerCase().includes(q) || (t.sql || '').toLowerCase().includes(q);
+  return { open: store.tabs.filter(f), closed: store.closedTabs.filter(f) };
+});
+
+function openTabSearch() {
+  tabSearch.value = true;
+  tabQuery.value = '';
+  nextTick(() => tabSearchInput.value?.focus());
+}
+function pickOpen(id) { actions.selectTab(id); tabSearch.value = false; }
+function pickClosed(id) { actions.reopenClosed(id); tabSearch.value = false; }
 </script>
 
 <template>
@@ -99,6 +118,63 @@ function snippetMeta() {
       >
         +
       </button>
+      <button
+        class="tab-search-btn"
+        title="Search tabs"
+        @click="openTabSearch"
+      >
+        ⌕
+      </button>
+    </div>
+
+    <div
+      v-if="tabSearch"
+      class="tab-search-overlay"
+      @click.self="tabSearch = false"
+      @keydown.esc="tabSearch = false"
+    >
+      <div class="tab-search-pop">
+        <input
+          ref="tabSearchInput"
+          v-model="tabQuery"
+          class="tab-search-input"
+          placeholder="Search tabs by name or SQL…"
+          @keydown.esc="tabSearch = false"
+        >
+        <div class="tab-search-list">
+          <div
+            v-for="t in matchedTabs.open"
+            :key="'o' + t.id"
+            class="tab-search-item"
+            :class="{ active: t.id === store.activeTabId }"
+            @click="pickOpen(t.id)"
+          >
+            <span class="t-title">{{ t.title }}</span>
+            <span class="t-sql">{{ (t.sql || '').replace(/\s+/g, ' ').trim().slice(0, 80) }}</span>
+          </div>
+          <template v-if="matchedTabs.closed.length">
+            <div class="tab-search-sep">
+              Recently closed
+            </div>
+            <div
+              v-for="t in matchedTabs.closed"
+              :key="'c' + t.id"
+              class="tab-search-item closed"
+              @click="pickClosed(t.id)"
+            >
+              <span class="t-title">{{ t.title }}</span>
+              <span class="t-sql">{{ (t.sql || '').replace(/\s+/g, ' ').trim().slice(0, 80) }}</span>
+              <span class="t-reopen">reopen</span>
+            </div>
+          </template>
+          <div
+            v-if="!matchedTabs.open.length && !matchedTabs.closed.length"
+            class="tab-search-empty"
+          >
+            No matching tabs
+          </div>
+        </div>
+      </div>
     </div>
 
     <div
