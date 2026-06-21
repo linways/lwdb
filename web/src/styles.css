@@ -72,18 +72,12 @@ button { cursor: pointer; }
   height: 100vh;
 }
 
-/* ---------- UI density (opt-in larger interface, set via data-density) ---------- */
-[data-density="comfortable"] { --ui-zoom: 1.12; }
-[data-density="large"] { --ui-zoom: 1.28; }
-[data-density="comfortable"] .app,
-[data-density="large"] .app {
-  /* `zoom` isn't honored by the Tauri WebKitGTK webview — use transform: scale,
-     which is. Pre-divide the box so the scaled result is exactly one viewport. */
-  transform: scale(var(--ui-zoom));
-  transform-origin: top left;
-  height: calc(100vh / var(--ui-zoom));
-  width: calc(100vw / var(--ui-zoom));
-}
+/* ---------- UI density (opt-in larger interface, set via data-density on <html>) ----------
+   CSS `zoom` on the root re-renders crisply (Chromium + WebKitGTK ≥2.46) and,
+   unlike transform: scale, needs no viewport-size hacks — viewport units resolve
+   against the zoomed root, so .app { height: 100vh } still fills the window. */
+[data-density="comfortable"] { zoom: 1.12; }
+[data-density="large"] { zoom: 1.28; }
 
 /* ---------- top bar ---------- */
 .topbar {
