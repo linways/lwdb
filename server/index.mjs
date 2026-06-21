@@ -45,8 +45,10 @@ const RATE_LIMIT = { max: 30, timeWindow: '1 minute' };
 // Optional API token: when LW_DB_TOKEN is set, every request must present it
 // (Bearer header, or ?token= for browser first-load). Off by default.
 if (registry.config.token) {
-  app.addHook('onRequest', (req, reply, done) => {
-    if (isAuthorized(req, registry.config.token)) { done(); return; }
+  app.addHook('onRequest', async (req, reply) => {
+    await app.rateLimit(RATE_LIMIT)(req, reply);
+    if (reply.sent) return;
+    if (isAuthorized(req, registry.config.token)) return;
     reply.code(401).send({ error: { code: Codes.UNAUTHORIZED, message: 'Missing or invalid API token.' } });
   });
   log.warn('api token required', {});
