@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
-import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection } from '@codemirror/view';
-import { EditorState, Compartment } from '@codemirror/state';
+import { EditorView, keymap, lineNumbers, highlightActiveLine, drawSelection, ViewPlugin, Decoration } from '@codemirror/view';
+import { EditorState, Compartment, Prec, RangeSetBuilder } from '@codemirror/state';
 import { defaultKeymap, history as cmHistory, historyKeymap, indentWithTab } from '@codemirror/commands';
 import {
   sql, MySQL,
@@ -9,10 +9,11 @@ import {
 } from '@codemirror/lang-sql';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { autocompletion, completionKeymap } from '@codemirror/autocomplete';
-import { bracketMatching, syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language';
+import { bracketMatching, syntaxHighlighting, HighlightStyle, syntaxTree } from '@codemirror/language';
+import { tags as t } from '@lezer/highlight';
 import { highlightSelectionMatches, searchKeymap } from '@codemirror/search';
 import { store } from '../store.js';
-import { fromAwareColumnSource } from '../sqlCompletion.js';
+import { fromAwareColumnSource, withTableAlias } from '../sqlCompletion.js';
 
 const props = defineProps({ modelValue: { type: String, default: '' } });
 const emit = defineEmits(['update:modelValue', 'run', 'selection']);
@@ -48,11 +49,78 @@ const lightEditorTheme = EditorView.theme({
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
   '.cm-activeLine': { backgroundColor: 'var(--bg-3)' },
   '.cm-activeLineGutter': { backgroundColor: 'var(--bg-3)' },
-  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection': { backgroundColor: 'var(--bg-hover)' },
 }, { dark: false });
 
+// Visible selection in both themes (oneDark's default is too faint and the
+// old light override used --bg-hover, indistinguishable from the bg). Applied
+// after the base theme so it wins. !important beats oneDark's own rule.
+const selectionTheme = EditorView.theme({
+  '&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection':
+    { backgroundColor: 'var(--sel) !important' },
+});
+
+// DBeaver-like SQL coloring. Light: bold navy keywords, green strings, blue
+// numbers. Dark: DBeaver's Darcula palette (orange keywords, olive strings,
+// blue numbers). Prec.highest lets the dark style override oneDark's own.
+const dbeaverLight = HighlightStyle.define([
+  { tag: [t.keyword, t.operatorKeyword, t.controlKeyword, t.moduleKeyword, t.definitionKeyword],
+    color: '#00008b', fontWeight: 'bold' },
+  { tag: [t.string, t.special(t.string), t.docString], color: '#008000' },
+  { tag: [t.number, t.bool, t.null], color: '#0000c0' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#3f7f5f', fontStyle: 'italic' },
+  { tag: [t.typeName, t.function(t.variableName), t.function(t.propertyName)], color: '#1b1e23' },
+  { tag: [t.operator, t.punctuation, t.variableName, t.propertyName], color: '#1b1e23' },
+], { themeType: 'light' });
+
+const dbeaverDark = HighlightStyle.define([
+  { tag: [t.keyword, t.operatorKeyword, t.controlKeyword, t.moduleKeyword, t.definitionKeyword],
+    color: '#cc7832', fontWeight: 'bold' },
+  { tag: [t.string, t.special(t.string), t.docString], color: '#6a8759' },
+  { tag: [t.number, t.bool, t.null], color: '#6897bb' },
+  { tag: [t.comment, t.lineComment, t.blockComment], color: '#808080', fontStyle: 'italic' },
+  { tag: [t.typeName, t.function(t.variableName), t.function(t.propertyName)], color: '#a9b7c6' },
+  { tag: [t.operator, t.punctuation, t.variableName, t.propertyName], color: '#a9b7c6' },
+], { themeType: 'dark' });
+
+// DBeaver colors recognized table names purple (semantic, schema-aware). The
+// SQL grammar can't tell a table from a column — both parse as Identifier — so
+// tableHighlighter (below) decorates identifiers that match a known table.
+const tableColorLight = EditorView.theme({ '.cm-tableName': { color: '#800080' } });
+const tableColorDark = EditorView.theme({ '.cm-tableName': { color: '#c586c0' } });
+
 function editorThemeFor(mode) {
-  return mode === 'dark' ? [oneDark] : [lightEditorTheme];
+  return mode === 'dark'
+    ? [oneDark, selectionTheme, tableColorDark, Prec.highest(syntaxHighlighting(dbeaverDark))]
+    : [lightEditorTheme, selectionTheme, tableColorLight, syntaxHighlighting(dbeaverLight)];
+}
+
+const tableMark = Decoration.mark({ class: 'cm-tableName' });
+
+// Decorate identifiers whose (unquoted, lowercased) text matches a known table.
+// `names` is a Set captured when buildSqlExtension runs, so it refreshes with
+// the schema. Only walks the visible ranges — cheap on large documents.
+function tableHighlighter(names) {
+  if (!names.size) return [];
+  const build = (view) => {
+    const b = new RangeSetBuilder();
+    for (const { from, to } of view.visibleRanges) {
+      syntaxTree(view.state).iterate({
+        from, to,
+        enter(node) {
+          if (node.name !== 'Identifier' && node.name !== 'QuotedIdentifier') return;
+          const raw = view.state.doc.sliceString(node.from, node.to).replace(/[`"]/g, '').toLowerCase();
+          if (names.has(raw)) b.add(node.from, node.to, tableMark);
+        },
+      });
+    }
+    return b.finish();
+  };
+  return ViewPlugin.fromClass(class {
+    constructor(view) { this.decorations = build(view); }
+    update(u) {
+      if (u.docChanged || u.viewportChanged) this.decorations = build(u.view);
+    }
+  }, { decorations: (v) => v.decorations });
 }
 
 // A small wrapper that always reads the *live* store.schema each time the
@@ -83,12 +151,17 @@ function withTrailingSpace(source) {
 function buildSqlExtension() {
   const schema = store.schema?.tables || {};
   const upper = !!store.prefs.uppercaseKeywords;
+  const tableNames = new Set(Object.keys(schema).map((n) => n.toLowerCase()));
   return [
     sql({ dialect: MySQL, schema, upperCaseKeywords: upper }),
+    tableHighlighter(tableNames),
     autocompletion({
       override: [
         withTrailingSpace(fromAwareColumnSource(liveSchemaRef)),
-        withTrailingSpace(schemaCompletionSource({ dialect: MySQL, schema, upperCaseKeywords: upper })),
+        withTableAlias(
+          withTrailingSpace(schemaCompletionSource({ dialect: MySQL, schema, upperCaseKeywords: upper })),
+          { enabled: () => store.prefs.tableAliases, schemaRef: liveSchemaRef },
+        ),
         withTrailingSpace(keywordCompletionSource(MySQL, upper)),
       ],
     }),
@@ -107,7 +180,6 @@ onMounted(() => {
       cmHistory(),
       // autocompletion() lives inside buildSqlExtension() so it gets
       // reconfigured (with fresh schema) whenever the active db changes.
-      syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       sqlCompartment.of(buildSqlExtension()),
       themeCompartment.of(editorThemeFor(store.themeMode)),
       appearanceCompartment.of(buildAppearance()),

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { store, actions } from '../store.js';
 import ConnectionsManager from './ConnectionsManager.vue';
 
@@ -54,6 +54,41 @@ fetch('/api/health').then((r) => r.json()).then((j) => {
   poolCount.value = j.pools?.activePools || 0;
 });
 fetch('/api/version').then((r) => r.json()).then((j) => { if (j.version) version.value = j.version; });
+
+// --- update check (GitHub latest release) ---
+const update = ref({ checking: false, checked: false, error: '', current: '', latest: '', hasUpdate: false, body: '', htmlUrl: '', name: '' });
+
+async function checkUpdates(force = false) {
+  update.value.checking = true;
+  update.value.error = '';
+  try {
+    const r = await fetch(`/api/update-check${force ? '?force=1' : ''}`);
+    const j = await r.json();
+    update.value = { ...update.value, ...j, checking: false, checked: true };
+  } catch (e) {
+    update.value = { ...update.value, checking: false, checked: true, error: e.message };
+  }
+}
+
+// Open the release page in the system browser (works inside the Tauri webview
+// via the local server). Falls back to window.open for plain browser use.
+async function openRelease() {
+  const url = update.value.htmlUrl;
+  if (!url) return;
+  try {
+    const r = await fetch('/api/open-external', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    if (!(await r.json()).ok) throw new Error('server could not open');
+  } catch (_) {
+    window.open(url, '_blank', 'noopener');
+  }
+}
+
+// Auto-check once when the About tab is first opened.
+watch(active, (v) => { if (v === 'about' && !update.value.checked) checkUpdates(); });
 
 const cachedSchemas = computed(() => {
   let count = 0;
@@ -186,6 +221,18 @@ function resetAll() {
               </p>
             </div>
             <div class="row">
+              <label>Remember last closed tabs</label>
+              <input
+                v-model.number="prefs.keepClosedTabs"
+                type="number"
+                min="0"
+                max="100"
+              >
+              <p class="hint">
+                Closed tabs (with content) are kept for reopening from the tab search (⌕). 0 disables.
+              </p>
+            </div>
+            <div class="row">
               <label class="check">
                 <input
                   v-model="prefs.confirmDestructive"
@@ -235,6 +282,18 @@ function resetAll() {
                 >
                 Uppercase SQL keywords in completions
               </label>
+            </div>
+            <div class="row">
+              <label class="check">
+                <input
+                  v-model="prefs.tableAliases"
+                  type="checkbox"
+                >
+                Auto-insert table alias on FROM/JOIN completion
+              </label>
+              <p class="hint">
+                DBeaver-style — completing a table inserts a short alias (e.g. <code>settings s</code>).
+              </p>
             </div>
             <div class="row">
               <label class="check">
@@ -417,6 +476,66 @@ function resetAll() {
                 <span>saved queries</span><code>{{ store.snippets.length }}</code>
               </p>
             </div>
+
+            <div class="row">
+              <label>Updates</label>
+              <div class="update-box">
+                <div class="update-head">
+                  <span
+                    v-if="update.checking"
+                    class="upd-status"
+                  >Checking…</span>
+                  <span
+                    v-else-if="update.error"
+                    class="upd-status err"
+                  >Check failed: {{ update.error }}</span>
+                  <span
+                    v-else-if="update.hasUpdate"
+                    class="upd-status new"
+                  >Update available — v{{ update.latest }} (you have v{{ update.current }})</span>
+                  <span
+                    v-else-if="update.noReleases"
+                    class="upd-status"
+                  >No releases published yet (v{{ update.current }} installed)</span>
+                  <span
+                    v-else-if="update.checked"
+                    class="upd-status ok"
+                  >You're on the latest version (v{{ update.current }})</span>
+                  <span
+                    v-else
+                    class="upd-status"
+                  >Check GitHub for a newer release.</span>
+                  <div
+                    class="spacer"
+                    style="flex:1"
+                  />
+                  <button
+                    class="btn ghost"
+                    :disabled="update.checking"
+                    @click="checkUpdates(true)"
+                  >
+                    {{ update.checking ? '…' : 'Check now' }}
+                  </button>
+                  <button
+                    v-if="update.hasUpdate"
+                    class="btn primary"
+                    @click="openRelease"
+                  >
+                    Download v{{ update.latest }}
+                  </button>
+                </div>
+                <div
+                  v-if="update.hasUpdate && update.body"
+                  class="changelog"
+                >
+                  <div class="changelog-title">
+                    What's new
+                  </div>
+                  <pre>{{ update.body }}</pre>
+                </div>
+              </div>
+            </div>
+
             <div class="row">
               <p class="hint">
                 Configuration is via the <code>LW_DB_*</code> env vars and <code>package.json#lwDb</code>. See <code>.env.example</code>.
@@ -444,6 +563,26 @@ function resetAll() {
 
 <style scoped>
 .settings-modal { width: min(820px, 100%); max-height: 80vh; }
+.update-box { width: 100%; }
+.update-head { display: flex; align-items: center; gap: 10px; }
+.upd-status { font-size: 12px; color: var(--text-dim); }
+.upd-status.new { color: var(--accent); font-weight: 600; }
+.upd-status.ok { color: var(--good); }
+.upd-status.err { color: var(--danger); }
+.changelog {
+  margin-top: 10px; border: 1px solid var(--border); border-radius: var(--r);
+  background: var(--bg); overflow: hidden;
+}
+.changelog-title {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-faint); padding: 6px 10px; background: var(--bg-3);
+  border-bottom: 1px solid var(--border);
+}
+.changelog pre {
+  margin: 0; padding: 10px; max-height: 240px; overflow: auto;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.5;
+  color: var(--text); white-space: pre-wrap; word-break: break-word;
+}
 .settings-body {
   display: grid;
   grid-template-columns: 160px 1fr;

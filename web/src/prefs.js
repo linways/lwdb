@@ -10,12 +10,14 @@ export const DEFAULT_PREFS = Object.freeze({
   defaultLimit: 500,             // implicit LIMIT applied to bare SELECTs
   confirmDestructive: true,      // confirm() before delete-snippet etc.
   writeUnlockedByDefault: false, // start sessions with writes off
+  keepClosedTabs: 10,            // how many recently-closed tabs to remember for reopening (0 = off)
   theme: 'auto',                 // 'auto' (follow OS) | 'dark' | 'light'
   uiDensity: 'compact',          // 'compact' (default) | 'comfortable' | 'large' — scales the whole UI
 
   // Editor
   editorFontSize: 13,            // px
   uppercaseKeywords: true,       // CodeMirror SQL completion behavior
+  tableAliases: true,            // auto-insert a table alias on FROM/JOIN completion (DBeaver-style)
   showLineNumbers: true,
   wordWrap: false,
 

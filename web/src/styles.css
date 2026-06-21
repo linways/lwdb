@@ -16,6 +16,7 @@
   --text-faint: #62676f;
   --accent: #5ad1ff;
   --accent-dim: #2a7693;
+  --sel: #2f6fd6; /* DBeaver-like selection */
   --warn: #f5b54a;
   --danger: #ff6b6b;
   --good: #6fcf73;
@@ -33,12 +34,14 @@
   --text-faint: #899099;
   --accent: #0b87c2;
   --accent-dim: #b8e2f2;
+  --sel: #2f6fd6; /* DBeaver-like selection */
   --warn: #b9770a;
   --danger: #c63a3c;
   --good: #2f8f3a;
 }
 
 * { box-sizing: border-box; }
+::selection { background: var(--sel); color: #fff; }
 html, body, #app { height: 100%; margin: 0; }
 body {
   background: var(--bg);
@@ -74,8 +77,10 @@ button { cursor: pointer; }
 [data-density="large"] { --ui-zoom: 1.28; }
 [data-density="comfortable"] .app,
 [data-density="large"] .app {
-  zoom: var(--ui-zoom);
-  /* zoom scales vh/vw as well, so pre-divide to keep the shell exactly one viewport. */
+  /* `zoom` isn't honored by the Tauri WebKitGTK webview — use transform: scale,
+     which is. Pre-divide the box so the scaled result is exactly one viewport. */
+  transform: scale(var(--ui-zoom));
+  transform-origin: top left;
   height: calc(100vh / var(--ui-zoom));
   width: calc(100vw / var(--ui-zoom));
 }
@@ -196,6 +201,7 @@ button { cursor: pointer; }
   white-space: nowrap;
   max-width: 200px;
 }
+.tab { cursor: pointer; }
 .tab.active { background: var(--bg); color: var(--text); }
 .tab.running { color: var(--accent); }
 .tab-dot {
@@ -220,6 +226,41 @@ button { cursor: pointer; }
   border-right: 1px solid var(--border);
 }
 .tab-add:hover { color: var(--text); }
+.tab-search-btn {
+  padding: 0 12px; color: var(--text-faint);
+  border-right: 1px solid var(--border); font-size: 14px;
+}
+.tab-search-btn:hover { color: var(--text); }
+
+/* ---------- tab search popover ---------- */
+.tab-search-overlay { position: fixed; inset: 0; z-index: 50; }
+.tab-search-pop {
+  position: absolute; top: 34px; left: 8px; width: min(480px, 92vw);
+  background: var(--bg-2); border: 1px solid var(--border-strong);
+  border-radius: var(--r); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35); overflow: hidden;
+}
+.tab-search-input {
+  width: 100%; padding: 10px 12px; background: var(--bg);
+  border: none; border-bottom: 1px solid var(--border); color: var(--text); font-size: 13px;
+}
+.tab-search-list { max-height: 340px; overflow-y: auto; }
+.tab-search-item {
+  display: flex; align-items: baseline; gap: 10px; padding: 7px 12px; cursor: pointer;
+}
+.tab-search-item:hover { background: var(--bg-3); }
+.tab-search-item.active { background: var(--bg-hover); }
+.tab-search-item .t-title { color: var(--text); font-size: 12px; min-width: 72px; white-space: nowrap; }
+.tab-search-item.closed .t-title { color: var(--text-dim); }
+.tab-search-item .t-sql {
+  color: var(--text-faint); font-size: 11px; font-family: var(--font-mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+}
+.tab-search-item .t-reopen { color: var(--accent); font-size: 10px; }
+.tab-search-sep {
+  padding: 6px 12px 4px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.5px; color: var(--text-faint); background: var(--bg-3);
+}
+.tab-search-empty { padding: 14px 12px; color: var(--text-faint); font-size: 12px; text-align: center; }
 
 /* ---------- tab content ---------- */
 .tab-content {
@@ -282,8 +323,14 @@ button { cursor: pointer; }
   border-color: var(--accent);
 }
 .btn.primary:hover { filter: brightness(1.1); }
+.btn.warn { background: var(--warn); color: #1b1205; border-color: var(--warn); }
+.btn.warn:hover { filter: brightness(1.08); }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-dim); }
 .btn.ghost:hover { color: var(--text); background: var(--bg-3); }
+/* icon-only top-bar controls — bump the glyph so it's actually legible */
+.topbar .theme-toggle,
+.topbar .gear-btn,
+.topbar .copy-chip { font-size: 17px; line-height: 1; }
 
 .cm-host {
   width: 100%;
@@ -381,6 +428,7 @@ button { cursor: pointer; }
   font-weight: 500;
   text-align: left;
 }
+.grid tbody td { cursor: pointer; }
 .grid tr:hover td { background: var(--bg-2); }
 .grid-wrap.zebra .grid tbody tr:nth-child(even) td { background: rgba(255, 255, 255, 0.015); }
 .grid td.null { color: var(--text-faint); font-style: italic; }

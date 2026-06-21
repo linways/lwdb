@@ -2,6 +2,7 @@ import { reactive, computed, watch } from 'vue';
 import { api } from './api.js';
 import { loadPrefs, savePrefs, DEFAULT_PREFS } from './prefs.js';
 import { pickStatement, parseUseStatement } from './sqlStatements.js';
+import { updateCellSql } from './sqlGen.js';
 import { THEME_PREFS, resolveTheme } from './themes.js';
 import { applyTheme, systemPrefersDark, watchSystemTheme } from './theme.js';
 
@@ -38,10 +39,23 @@ function readRecentDbs(server) {
   } catch (_) { return []; }
 }
 
-// Set `data-density` on <html>; only 'comfortable'/'large' trigger the zoom in CSS.
+// Density → zoom factor. In the Tauri desktop app we use the native webview
+// zoom (re-renders crisply, like Ctrl-+); CSS transform-scale is only a browser
+// fallback (it rescales rasterized pixels, so it looks blurry at 1.12/1.28).
+const DENSITY_ZOOM = { compact: 1, comfortable: 1.12, large: 1.28 };
+const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+
 function applyDensity(pref) {
   const d = VALID_DENSITY.includes(pref) ? pref : 'compact';
-  document.documentElement.setAttribute('data-density', d);
+  if (isTauri) {
+    // Native zoom — no CSS scaling, so it stays crisp.
+    document.documentElement.removeAttribute('data-density');
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(DENSITY_ZOOM[d] || 1))
+      .catch(() => { document.documentElement.setAttribute('data-density', d); }); // fall back to CSS
+  } else {
+    document.documentElement.setAttribute('data-density', d);
+  }
   return d;
 }
 
@@ -68,6 +82,14 @@ function blankTab() {
 
 const initialPrefs = loadPrefs();
 
+// Remember the last read-only/writable choice across launches (falls back to
+// the writeUnlockedByDefault pref the first time, before any toggle).
+const WRITABLE_KEY = 'lwdb:writable';
+function readWritable(fallback) {
+  try { const v = localStorage.getItem(WRITABLE_KEY); return v === null ? fallback : v === '1'; }
+  catch (_) { return fallback; }
+}
+
 export const store = reactive({
   servers: [],
   currentServer: null,
@@ -80,8 +102,9 @@ export const store = reactive({
   snippets: [],
   snippetFilter: '',
   tabs: [blankTab()],
+  closedTabs: [],           // recently-closed tabs (slim, most-recent-first) for reopening
   activeTabId: 1,
-  writable: !!initialPrefs.writeUnlockedByDefault,
+  writable: readWritable(!!initialPrefs.writeUnlockedByDefault),
   loadingDbs: false,
   loadingTables: false,
   loadingSchema: false,
@@ -95,6 +118,40 @@ export const store = reactive({
 store.themeMode = applyTheme(store.prefs.theme);
 applyDensity(store.prefs.uiDensity);
 
+// Persist open tabs (content only — not the volatile result/error/running) so
+// closing and reopening lwdb keeps your in-progress queries, like DBeaver scripts.
+const TABS_KEY = 'lwdb:tabs';
+function slimTab(t) {
+  return { id: t.id, title: t.title, sql: t.sql, snippetId: t.snippetId, snippetParams: t.snippetParams, snippetOps: t.snippetOps };
+}
+function saveTabs() {
+  try {
+    localStorage.setItem(TABS_KEY, JSON.stringify({
+      tabs: store.tabs.map(slimTab),
+      closed: store.closedTabs,
+      activeTabId: store.activeTabId,
+      seq: tabSeq, // persist the counter so "Query N" never reuses a number
+    }));
+  } catch (_) { /* quota — ignore */ }
+}
+(function restoreTabs() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TABS_KEY) || 'null');
+    if (!saved || !Array.isArray(saved.tabs) || !saved.tabs.length) return;
+    store.tabs = saved.tabs.map((t) => ({ ...blankTab(), ...t }));
+    store.closedTabs = Array.isArray(saved.closed) ? saved.closed : [];
+    store.activeTabId = store.tabs.some((t) => t.id === saved.activeTabId) ? saved.activeTabId : store.tabs[0].id;
+    // Continue numbering from the persisted counter; fall back to max id seen.
+    const maxId = Math.max(0, ...store.tabs.map((t) => t.id), ...store.closedTabs.map((t) => t.id || 0));
+    tabSeq = Math.max(saved.seq || 0, maxId + 1);
+  } catch (_) { /* corrupt — start fresh */ }
+})();
+// Re-runs only when persisted fields change (the getter never reads result/error).
+watch(
+  () => JSON.stringify(store.tabs.map(slimTab)) + '@' + store.activeTabId + '#' + store.closedTabs.length + '#' + tabSeq,
+  saveTabs,
+);
+
 /** Record `db` as the most-recently-used on `server` (deduped, capped). */
 function pushRecentDb(server, db) {
   if (!server || !db) return;
@@ -105,6 +162,11 @@ function pushRecentDb(server, db) {
 
 // Persist prefs whenever they change.
 watch(() => ({ ...store.prefs }), (val) => savePrefs(val), { deep: true });
+
+// Remember the read-only/writable toggle so it survives a restart.
+watch(() => store.writable, (v) => {
+  try { localStorage.setItem(WRITABLE_KEY, v ? '1' : '0'); } catch (_) { /* quota — ignore */ }
+});
 
 export const activeTab = computed(() => store.tabs.find((t) => t.id === store.activeTabId));
 
@@ -309,9 +371,34 @@ export const actions = {
   closeTab(id) {
     const idx = store.tabs.findIndex((t) => t.id === id);
     if (idx === -1) return;
+    const closed = store.tabs[idx];
+    // Remember tabs with actual content so they can be reopened.
+    const keep = store.prefs.keepClosedTabs ?? 10;
+    if (keep > 0 && (closed.sql || '').trim()) {
+      store.closedTabs = [slimTab(closed), ...store.closedTabs.filter((t) => t.id !== closed.id)].slice(0, keep);
+    }
+    // Closing the only tab: clear it in place rather than remove + recreate,
+    // which would needlessly bump the "Query N" counter each time.
+    if (store.tabs.length === 1) {
+      Object.assign(closed, {
+        sql: 'SELECT 1;', snippetId: null, snippetParams: {}, snippetOps: {},
+        result: null, error: null, running: false, resultsHidden: false,
+      });
+      return;
+    }
     store.tabs.splice(idx, 1);
-    if (!store.tabs.length) store.tabs.push(blankTab());
     if (store.activeTabId === id) store.activeTabId = store.tabs[Math.max(0, idx - 1)].id;
+  },
+
+  /** Reopen a recently-closed tab, restoring its original name + content. */
+  reopenClosed(id) {
+    const i = store.closedTabs.findIndex((t) => t.id === id);
+    if (i === -1) return;
+    const [t] = store.closedTabs.splice(i, 1);
+    const tab = { ...blankTab(), ...t };
+    if (store.tabs.some((x) => x.id === tab.id)) tab.id = tabSeq++; // avoid collision with an open tab
+    store.tabs.push(tab);
+    store.activeTabId = tab.id;
   },
 
   selectTab(id) {
@@ -373,6 +460,26 @@ export const actions = {
     } finally {
       tab.running = false;
     }
+  },
+
+  /**
+   * Persist a single edited cell as an UPDATE. Requires writes unlocked and a
+   * detected table; targets the row by PK (or full original row if no PK).
+   * Returns the affected row count.
+   */
+  async updateCell({ table, pks, row, col, newValue }) {
+    if (!store.writable) throw new Error('writes are locked — unlock first');
+    if (!store.currentServer) throw new Error('no server selected');
+    if (!table) throw new Error('no table detected in the query');
+    const sql = updateCellSql(table, pks || [], row, col, newValue);
+    const result = await api.query({
+      server: store.currentServer,
+      db: store.currentDb,
+      sql,
+      writable: true,
+      limit: 1,
+    });
+    return result;
   },
 
   openTable(name) {
