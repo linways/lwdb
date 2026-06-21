@@ -77,6 +77,53 @@ export function extractReferencedTables(docText) {
 }
 
 /**
+ * DBeaver-style short alias for a table name: initials of its word parts
+ * (snake_case + camelCase), e.g. student_total_mark → "stm". Single-word tables
+ * collapse to their first letter (settings → "s").
+ * ponytail: no cross-table dedupe — two tables starting alike share an alias;
+ * the user edits the rare collision. Add a uniquifier if it bites.
+ */
+export function aliasFor(table) {
+  const parts = String(table).replace(/[`"]/g, '')
+    .split(/[_\s]+/)
+    .flatMap((p) => p.split(/(?<=[a-z0-9])(?=[A-Z])/))
+    .filter(Boolean);
+  if (parts.length > 1) return parts.map((p) => p[0].toLowerCase()).join('').slice(0, 4);
+  return (parts[0] || String(table)).slice(0, 1).toLowerCase();
+}
+
+/**
+ * Wrap a completion source so that, when the caret is in a table-name position
+ * (after FROM/JOIN/UPDATE/INTO), completing a known table also inserts a
+ * generated alias — like DBeaver's "insert table aliases". `enabled()` gates it
+ * (a pref); `schemaRef.value.tables` identifies which options are real tables.
+ */
+export function withTableAlias(source, { enabled, schemaRef }) {
+  return async (context) => {
+    const result = await source(context);
+    if (!result || !result.options || !enabled || !enabled()) return result;
+
+    const word = context.matchBefore(/[\w]*/);
+    if (!word) return result;
+    const docText = context.state.doc.toString();
+    const stmt = statementAt(docText, context.pos);
+    if (!TABLE_POSITION_RE.test(docText.slice(stmt.from, word.from))) return result;
+
+    const tables = new Set(Object.keys((schemaRef.value && schemaRef.value.tables) || {}).map((t) => t.toLowerCase()));
+    if (!tables.size) return result;
+
+    return {
+      ...result,
+      options: result.options.map((o) => {
+        if (typeof o.apply === 'function') return o;
+        if (!tables.has(String(o.label).toLowerCase())) return o;
+        return { ...o, apply: `${o.label} ${aliasFor(o.label)} ` };
+      }),
+    };
+  };
+}
+
+/**
  * Build a CodeMirror completion source that, when the cursor is at a bare
  * identifier (not preceded by `.`), suggests columns from any table listed in
  * the document's FROM/JOIN clauses.

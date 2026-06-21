@@ -28,6 +28,7 @@ const DEFAULTS = {
   historyMax: 10_000,
   bodyLimitBytes: 50 * 1024 * 1024,
   logLevel: 'info',
+  releasesRepo: 'linways/lwdb', // GitHub owner/repo the update checker queries
 };
 
 function pickEnv(key, transform = (x) => x) {
@@ -57,6 +58,7 @@ export async function loadConfig() {
     token: pickEnv('LW_DB_TOKEN') || pkg.token || DEFAULTS.token,
     queryTimeoutMs: pickEnv('LW_DB_QUERY_TIMEOUT_MS', Number) || DEFAULTS.queryTimeoutMs,
     logLevel: pickEnv('LW_DB_LOG_LEVEL') || pkg.logLevel || DEFAULTS.logLevel,
+    releasesRepo: pickEnv('LW_DB_RELEASES_REPO') || pkg.releasesRepo || DEFAULTS.releasesRepo,
     projectRoot: PROJECT_ROOT,
   };
   cfg.sqlitePath = cfg.sqlitePath || join(cfg.dataDir, 'lwdb.sqlite');

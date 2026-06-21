@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { spawn } from 'node:child_process';
 
 import { buildRegistry } from './lib/registry.mjs';
 import { safeConnection } from './lib/connectionStore.mjs';
@@ -90,6 +91,83 @@ app.get('/api/health', async () => ({
 }));
 
 app.get('/api/version', async () => ({ name: packageMeta.name, version: packageMeta.version }));
+
+// ---------- update check (GitHub latest release) ----------
+function cmpSemver(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i += 1) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+}
+// Releases are published under the linways org, not the personal fork that
+// package.json points at — so this is configurable (LW_DB_RELEASES_REPO).
+const REPO_SLUG = registry.config.releasesRepo;
+let updateCache = { at: 0, data: null };
+
+app.get('/api/update-check', async (req, reply) => {
+  const current = packageMeta.version;
+  if (!REPO_SLUG) return { current, hasUpdate: false, error: 'no GitHub repo configured' };
+  // Cache 10 min so opening About repeatedly doesn't hit GitHub's rate limit.
+  if (updateCache.data && Date.now() - updateCache.at < 600_000 && !req.query.force) {
+    return { ...updateCache.data, current, cached: true };
+  }
+  try {
+    const r = await fetch(`https://api.github.com/repos/${REPO_SLUG}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'lwdb-updater' },
+      signal: AbortSignal.timeout(8000),
+    });
+    // 404 = repo has no published release yet — not an error, just nothing to update to.
+    if (r.status === 404) {
+      const data = { latest: '', hasUpdate: false, noReleases: true, body: '', htmlUrl: `https://github.com/${REPO_SLUG}/releases` };
+      updateCache = { at: Date.now(), data };
+      return { ...data, current };
+    }
+    if (!r.ok) { reply.code(502); return { current, hasUpdate: false, error: `GitHub responded ${r.status}` }; }
+    const rel = await r.json();
+    const latest = String(rel.tag_name || rel.name || '').replace(/^v/, '');
+    const data = {
+      latest,
+      hasUpdate: latest ? cmpSemver(latest, current) > 0 : false,
+      name: rel.name || rel.tag_name || latest,
+      body: rel.body || '',
+      htmlUrl: rel.html_url || `https://github.com/${REPO_SLUG}/releases`,
+      publishedAt: rel.published_at || null,
+    };
+    updateCache = { at: Date.now(), data };
+    return { ...data, current };
+  } catch (e) {
+    reply.code(502);
+    return { current, hasUpdate: false, error: e.message };
+  }
+});
+
+// Open a release page in the user's default browser (local desktop app).
+// Hardened: this endpoint only ever needs to open GitHub, so we lock the host
+// to github.com, require https, and reject any shell/cmd metacharacter. On
+// Windows we use rundll32 (not `cmd /c start`, which re-parses its arguments
+// and is the classic command-injection vector). Args are passed as an array
+// (no shell) on every platform.
+app.post('/api/open-external', async (req, reply) => {
+  const url = req.body?.url;
+  let parsed;
+  try { parsed = new URL(url); } catch (_) { reply.code(400); return { ok: false, error: 'invalid url' }; }
+  const safe = parsed.protocol === 'https:'
+    && /(^|\.)github\.com$/i.test(parsed.hostname)
+    && !/["&|^<>%`\\\s]/.test(url); // no metacharacters / whitespace
+  if (!safe) { reply.code(400); return { ok: false, error: 'url not allowed' }; }
+  const [cmd, args] = process.platform === 'darwin'
+    ? ['open', [url]]
+    : process.platform === 'win32'
+      ? ['rundll32', ['url.dll,FileProtocolHandler', url]]
+      : ['xdg-open', [url]];
+  try {
+    spawn(cmd, args, { detached: true, stdio: 'ignore' }).unref();
+    return { ok: true };
+  } catch (e) {
+    reply.code(500);
+    return { ok: false, error: e.message };
+  }
+});
 
 // ---------- servers / dbs / tables ----------
 

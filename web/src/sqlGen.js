@@ -95,6 +95,24 @@ export function rowToUpdate(table, row, columns, primaryKey = []) {
   return `UPDATE ${escapeIdent(table)} SET ${setClause} WHERE ${whereClause};`;
 }
 
+/**
+ * Build an UPDATE for a single cell: SET col = newValue WHERE <identity>.
+ * The WHERE uses the ORIGINAL row (primary key if known, else every column with
+ * its old value) so it targets the exact row even when the edited column is part
+ * of the key. `LIMIT 1` bounds the no-PK case to one row.
+ */
+export function updateCellSql(table, primaryKey, row, col, newValue) {
+  const set = `${escapeIdent(col)} = ${formatValue(newValue)}`;
+  const whereCols = (primaryKey && primaryKey.length ? primaryKey : Object.keys(row))
+    .filter((c) => row[c] !== undefined);
+  const where = whereCols
+    .map((c) => (row[c] === null
+      ? `${escapeIdent(c)} IS NULL`
+      : `${escapeIdent(c)} = ${formatValue(row[c])}`))
+    .join(' AND ');
+  return `UPDATE ${escapeIdent(table)} SET ${set} WHERE ${where} LIMIT 1;`;
+}
+
 /** Build DELETE FROM table WHERE pk=val (or all non-null cols if no PK). */
 export function rowToDelete(table, row, columns, primaryKey = []) {
   const whereCols = primaryKey.length
