@@ -39,10 +39,23 @@ function readRecentDbs(server) {
   } catch (_) { return []; }
 }
 
-// Set `data-density` on <html>; only 'comfortable'/'large' trigger the zoom in CSS.
+// Density → zoom factor. In the Tauri desktop app we use the native webview
+// zoom (re-renders crisply, like Ctrl-+); CSS transform-scale is only a browser
+// fallback (it rescales rasterized pixels, so it looks blurry at 1.12/1.28).
+const DENSITY_ZOOM = { compact: 1, comfortable: 1.12, large: 1.28 };
+const isTauri = typeof window !== 'undefined' && !!window.__TAURI_INTERNALS__;
+
 function applyDensity(pref) {
   const d = VALID_DENSITY.includes(pref) ? pref : 'compact';
-  document.documentElement.setAttribute('data-density', d);
+  if (isTauri) {
+    // Native zoom — no CSS scaling, so it stays crisp.
+    document.documentElement.removeAttribute('data-density');
+    import('@tauri-apps/api/webview')
+      .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(DENSITY_ZOOM[d] || 1))
+      .catch(() => { document.documentElement.setAttribute('data-density', d); }); // fall back to CSS
+  } else {
+    document.documentElement.setAttribute('data-density', d);
+  }
   return d;
 }
 

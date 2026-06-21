@@ -4,6 +4,7 @@
  */
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
+import fastifyRateLimit from '@fastify/rate-limit';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -34,6 +35,22 @@ const app = Fastify({
   disableRequestLogging: true,
   genReqId: () => randomUUID(),
 });
+
+// Rate limiting is opt-in per route (global: false) — applied only to the
+// endpoints that reach outside the process (spawn a browser, call GitHub) so
+// they can't be hammered. Normal query traffic is unaffected.
+await app.register(fastifyRateLimit, { global: false });
+const RATE_LIMIT = { max: 30, timeWindow: '1 minute' };
+
+// Optional API token: when LW_DB_TOKEN is set, every request must present it
+// (Bearer header, or ?token= for browser first-load). Off by default.
+if (registry.config.token) {
+  app.addHook('onRequest', (req, reply, done) => {
+    if (isAuthorized(req, registry.config.token)) { done(); return; }
+    reply.code(401).send({ error: { code: Codes.UNAUTHORIZED, message: 'Missing or invalid API token.' } });
+  });
+  log.warn('api token required', {});
+}
 
 app.addHook('onResponse', (req, reply, done) => {
   log.info('req', {
@@ -93,7 +110,7 @@ function cmpSemver(a, b) {
 const REPO_SLUG = registry.config.releasesRepo;
 let updateCache = { at: 0, data: null };
 
-app.get('/api/update-check', async (req, reply) => {
+app.get('/api/update-check', { config: { rateLimit: RATE_LIMIT } }, async (req, reply) => {
   const current = packageMeta.version;
   if (!REPO_SLUG) return { current, hasUpdate: false, error: 'no GitHub repo configured' };
   // Cache 10 min so opening About repeatedly doesn't hit GitHub's rate limit.
@@ -136,7 +153,7 @@ app.get('/api/update-check', async (req, reply) => {
 // Windows we use rundll32 (not `cmd /c start`, which re-parses its arguments
 // and is the classic command-injection vector). Args are passed as an array
 // (no shell) on every platform.
-app.post('/api/open-external', async (req, reply) => {
+app.post('/api/open-external', { config: { rateLimit: RATE_LIMIT } }, async (req, reply) => {
   const url = req.body?.url;
   let parsed;
   try { parsed = new URL(url); } catch (_) { reply.code(400); return { ok: false, error: 'invalid url' }; }
