@@ -28,10 +28,16 @@ const appearanceCompartment = new Compartment();
 const gutterCompartment = new Compartment();
 const themeCompartment = new Compartment();
 
+// The editor is counter-zoomed back to net 1.0 at non-default density (see
+// styles.css — WebKitGTK's `zoom` breaks CodeMirror click targeting), so scale
+// the font-size up by the same factor to keep the editor visually the same size.
+const DENSITY_ZOOM = { compact: 1, comfortable: 1.12, large: 1.28 };
+
 function buildAppearance() {
+  const factor = DENSITY_ZOOM[store.prefs.uiDensity] || 1;
   const exts = [
     EditorView.theme({
-      '&': { fontSize: `${store.prefs.editorFontSize || 13}px` },
+      '&': { fontSize: `${(store.prefs.editorFontSize || 13) * factor}px` },
     }),
   ];
   if (store.prefs.wordWrap) exts.push(EditorView.lineWrapping);
@@ -47,8 +53,10 @@ const lightEditorTheme = EditorView.theme({
   '&': { backgroundColor: 'var(--bg-2)', color: 'var(--text)' },
   '.cm-gutters': { backgroundColor: 'var(--bg-2)', color: 'var(--text-faint)', border: 'none' },
   '.cm-cursor, .cm-dropCursor': { borderLeftColor: 'var(--text)' },
-  '.cm-activeLine': { backgroundColor: 'var(--bg-3)' },
-  '.cm-activeLineGutter': { backgroundColor: 'var(--bg-3)' },
+  // Translucent (not solid var(--bg-3)) so the blue selection layer beneath
+  // shows through on the current line — a solid bg hid it until the cursor moved.
+  '.cm-activeLine': { backgroundColor: 'rgba(0,0,0,0.05)' },
+  '.cm-activeLineGutter': { backgroundColor: 'rgba(0,0,0,0.05)' },
 }, { dark: false });
 
 // Visible selection in both themes (oneDark's default is too faint and the
@@ -260,6 +268,7 @@ watch(
     store.prefs.wordWrap,
     store.prefs.showLineNumbers,
     store.prefs.uppercaseKeywords,
+    store.prefs.uiDensity,
   ],
   () => {
     if (!view) return;
