@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { store, actions } from '../store.js';
+import { copyText } from '../clipboard.js';
 
 const props = defineProps({ mode: { type: String, default: 'global' } });
 const emit = defineEmits(['close', 'edit-snippet', 'open-settings']);
@@ -156,12 +157,9 @@ function copyTextFor(item) {
 async function onCopy(item) {
   const text = copyTextFor(item);
   if (!text) return;
-  try {
-    await navigator.clipboard.writeText(text);
-    actions.toast(`Copied "${text.length > 40 ? text.slice(0, 40) + '…' : text}"`, 'good');
-  } catch (err) {
-    actions.toast(`Copy failed: ${err.message}`, 'error');
-  }
+  const ok = await copyText(text);
+  const shown = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  actions.toast(ok ? `Copied "${shown}"` : 'Copy failed', ok ? 'good' : 'error');
 }
 
 function onKey(e) {
