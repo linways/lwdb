@@ -79,6 +79,15 @@ button { cursor: pointer; }
 [data-density="comfortable"] { zoom: 1.12; }
 [data-density="large"] { zoom: 1.28; }
 
+/* CodeMirror maps a click to a position by comparing the mouse event's
+   clientX/Y against getBoundingClientRect() (pure arithmetic, no
+   caretFromPoint). WebKitGTK's legacy `zoom` scales the rect but NOT the event
+   coords, so the mismatch grows down the page and clicks select the wrong line.
+   Counter-zoom the editor back to net 1.0 so rect math == client coords again;
+   QueryEditor.vue scales the editor font-size by the same factor to keep size. */
+[data-density="comfortable"] .cm-host { zoom: 0.8928571; }
+[data-density="large"] .cm-host { zoom: 0.78125; }
+
 /* ---------- top bar ---------- */
 .topbar {
   display: flex;
