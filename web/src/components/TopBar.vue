@@ -1,6 +1,7 @@
 <script setup>
 import { computed } from 'vue';
 import { store, actions } from '../store.js';
+import { copyText } from '../clipboard.js';
 
 const emit = defineEmits(['open-palette', 'new-snippet', 'open-settings']);
 
@@ -22,12 +23,8 @@ function toggleTheme() {
 
 async function copyCurrentDb() {
   if (!store.currentDb) return;
-  try {
-    await navigator.clipboard.writeText(store.currentDb);
-    actions.toast(`Copied "${store.currentDb}"`, 'good');
-  } catch (err) {
-    actions.toast(`Copy failed: ${err.message}`, 'error');
-  }
+  const ok = await copyText(store.currentDb);
+  actions.toast(ok ? `Copied "${store.currentDb}"` : 'Copy failed', ok ? 'good' : 'error');
 }
 </script>
 

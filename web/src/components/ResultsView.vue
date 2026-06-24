@@ -2,6 +2,7 @@
 import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue';
 import { store, actions } from '../store.js';
 import { tableFromSql, rowToInsert, rowToUpdate, rowToDelete } from '../sqlGen.js';
+import { copyText } from '../clipboard.js';
 import ContextMenu from './ContextMenu.vue';
 
 const props = defineProps({ tab: { type: Object, default: null } });
@@ -90,11 +91,11 @@ function copyCsv() {
     return s;
   };
   const body = data.map((r) => cols.value.map((c) => escape(r[c])).join(',')).join('\n');
-  navigator.clipboard?.writeText(`${head}\n${body}`);
+  copy(`${head}\n${body}`, 'CSV copied');
 }
 
 function copyJson() {
-  navigator.clipboard?.writeText(JSON.stringify(filtered.value, null, 2));
+  copy(JSON.stringify(filtered.value, null, 2), 'JSON copied');
 }
 
 const contextMenu = ref(null); // { x, y, items }
@@ -133,12 +134,8 @@ onMounted(() => window.addEventListener('keydown', onKeydown));
 onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown));
 
 async function copy(text, label = 'Copied to clipboard') {
-  try {
-    await navigator.clipboard?.writeText(text);
-    actions.toast(label, 'good');
-  } catch (err) {
-    actions.toast(`Copy failed: ${err.message}`, 'error');
-  }
+  const ok = await copyText(text);
+  actions.toast(ok ? label : 'Copy failed', ok ? 'good' : 'error');
 }
 
 // Raw clipboard string for a single cell value.
