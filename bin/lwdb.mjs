@@ -139,10 +139,10 @@ async function helpJson() {
       cmd('history-clear', 'history', 'Wipe the query history.'),
       cmd('backup', 'backup', 'Back up the SQLite store (sqlite or json).', [], { out: '', format: 'sqlite|json' }),
       cmd('restore', 'backup', 'Restore from a backup file.', [a('path', true)], { merge: '' }),
-      cmd('conn-add', 'connections', 'Add a connection.', [], { label: 'required', host: 'required', user: 'required', port: '', password: '', color: '', group: '', notes: '', local: '', protected: 'Refuse all agent writes to this connection.' }),
-      cmd('conn-edit', 'connections', 'Edit a connection.', [a('id', true)], { label: '', host: '', port: '', user: '', password: '', color: '', group: '', notes: '', local: '', remote: '', protected: 'Mark write-protected.', unprotected: 'Clear write protection.' }),
+      cmd('conn-add', 'connections', 'Add a connection.', [], { label: 'required', host: 'required', user: 'required', port: '', password: '', color: '', group: '', notes: '', local: '', protected: 'Refuse all agent writes to this connection.', 'ssh-host': 'Tunnel through this SSH host (ssh-agent auth); host/port become the DB address as seen from it.', 'ssh-port': '', 'ssh-user': '' }),
+      cmd('conn-edit', 'connections', 'Edit a connection.', [a('id', true)], { label: '', host: '', port: '', user: '', password: '', color: '', group: '', notes: '', local: '', remote: '', protected: 'Mark write-protected.', unprotected: 'Clear write protection.', 'ssh-host': 'Set SSH tunnel host (empty value clears the tunnel).', 'ssh-port': '', 'ssh-user': '' }),
       cmd('conn-rm', 'connections', 'Delete a connection.', [a('id', true)], { yes: 'required' }),
-      cmd('conn-test', 'connections', 'Ping a connection (saved id or inline host/user).', [a('id')], { host: '', user: '', port: '', password: '' }),
+      cmd('conn-test', 'connections', 'Ping a connection (saved id or inline host/user).', [a('id')], { host: '', user: '', port: '', password: '', 'ssh-host': '', 'ssh-port': '', 'ssh-user': '' }),
       cmd('import', 'connections', 'Bulk upsert connections from JSON.', [a('file', true)]),
       cmd('export', 'connections', 'Dump connections (includes passwords).', [a('file')]),
       cmd('agent-writes', 'system', 'Show or set the master write switch.', [a('on|off')]),
@@ -180,11 +180,12 @@ DATA
 
 CONNECTIONS
   servers | connections             # list connections
-  conn-add --label= --host= --user= [--port=3306] [--password=] [--color=] [--group=] [--notes=] [--local] [--protected]
-  conn-edit <id> [--label=] [--host=] [--port=] [--user=] [--password=] [--color=] [--group=] [--notes=] [--local|--remote] [--protected|--unprotected]
+  conn-add --label= --host= --user= [--port=3306] [--password=] [--color=] [--group=] [--notes=] [--local] [--protected] [--ssh-host= --ssh-user= [--ssh-port=22]]
+  conn-edit <id> [--label=] [--host=] [--port=] [--user=] [--password=] [--color=] [--group=] [--notes=] [--local|--remote] [--protected|--unprotected] [--ssh-host=|--ssh-host= (clear)] [--ssh-port=] [--ssh-user=]
                                        # --protected: refuse ALL agent writes to this connection (e.g. prod)
+                                       # --ssh-host: tunnel via ssh-agent; host/port are then the DB address as seen from the SSH server
   conn-rm <id> --yes
-  conn-test <id>                    # or: --host= --user= [--port=] [--password=]
+  conn-test <id>                    # or: --host= --user= [--port=] [--password=] [--ssh-host= --ssh-user=]
   import <file.json>                # bulk upsert connections (universal format)
   export [file.json]                # dump connections (includes passwords)
 
@@ -718,7 +719,7 @@ async function main() {
 
     case 'conn-add': {
       if (!flags.label || !flags.host || !flags.user) {
-        die('usage: lwdb conn-add --label=.. --host=.. --user=.. [--port=3306] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--protected]');
+        die('usage: lwdb conn-add --label=.. --host=.. --user=.. [--port=3306] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--protected] [--ssh-host=.. --ssh-user=.. [--ssh-port=22]]');
       }
       const conn = registry.connectionStore.create({
         label: flags.label,
@@ -731,6 +732,9 @@ async function main() {
         notes: flags.notes || null,
         kind: flags.local ? 'local' : undefined,
         writeProtected: !!flags.protected,
+        sshHost: flags['ssh-host'] || null,
+        sshPort: flags['ssh-port'] ? parseInt(flags['ssh-port'], 10) : undefined,
+        sshUser: flags['ssh-user'] || null,
       });
       emit(safeConnection(conn));
       break;
@@ -738,12 +742,15 @@ async function main() {
 
     case 'conn-edit': {
       const id = positional.shift();
-      if (!id) die('usage: lwdb conn-edit <id> [--label=..] [--host=..] [--port=..] [--user=..] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--remote]');
+      if (!id) die('usage: lwdb conn-edit <id> [--label=..] [--host=..] [--port=..] [--user=..] [--password=..] [--color=..] [--group=..] [--notes=..] [--local] [--remote] [--ssh-host=..|--ssh-host= (clear)] [--ssh-port=..] [--ssh-user=..]');
       const patch = {};
       for (const k of ['label', 'host', 'user', 'password', 'color', 'group', 'notes']) {
         if (k in flags) patch[k] = flags[k] === true ? '' : flags[k];
       }
       if ('port' in flags) patch.port = parseInt(flags.port, 10);
+      if ('ssh-host' in flags) patch.sshHost = flags['ssh-host'] === true ? '' : flags['ssh-host'];
+      if ('ssh-port' in flags) patch.sshPort = parseInt(flags['ssh-port'], 10);
+      if ('ssh-user' in flags) patch.sshUser = flags['ssh-user'] === true ? '' : flags['ssh-user'];
       if (flags.local) patch.kind = 'local';
       if (flags.remote) patch.kind = 'remote';
       if (flags.protected) patch.writeProtected = true;
@@ -767,8 +774,14 @@ async function main() {
       const id = positional.shift();
       let spec = null;
       if (id) spec = { id };
-      else if (flags.host && flags.user) spec = { host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306, user: flags.user, password: flags.password === true ? '' : (flags.password || '') };
-      if (!spec) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..])');
+      else if (flags.host && flags.user) spec = {
+        host: flags.host, port: flags.port ? parseInt(flags.port, 10) : 3306,
+        user: flags.user, password: flags.password === true ? '' : (flags.password || ''),
+        sshHost: flags['ssh-host'] || null,
+        sshPort: flags['ssh-port'] ? parseInt(flags['ssh-port'], 10) : undefined,
+        sshUser: flags['ssh-user'] || null,
+      };
+      if (!spec) die('usage: lwdb conn-test <id>  (or --host=.. --user=.. [--port=..] [--password=..] [--ssh-host=.. --ssh-user=..])');
       try { emit(await backend.testConnection(spec)); }
       catch (err) { die(`connect failed: ${err.message}`); }
       break;

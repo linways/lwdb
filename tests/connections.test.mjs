@@ -113,6 +113,26 @@ test('ConnectionStore.update patches and preserves absent password', async () =>
   } finally { await cleanup(); }
 });
 
+test('ConnectionStore persists SSH tunnel fields and defaults the port', async () => {
+  const { store, cleanup } = await freshStore();
+  try {
+    const c = store.create({ label: 'Tunneled', host: '127.0.0.1', port: 3306, user: 'app', sshHost: 'bastion.example.com', sshUser: 'ubuntu' });
+    assert.equal(c.sshHost, 'bastion.example.com');
+    assert.equal(c.sshUser, 'ubuntu');
+    assert.equal(c.sshPort, 22); // defaulted when sshHost set without a port
+    // Clearing sshHost drops the tunnel entirely.
+    const u = store.update(c.id, { sshHost: '' });
+    assert.equal(u.sshHost, null);
+    assert.equal(u.sshPort, null);
+    assert.equal(u.sshUser, null);
+    // exportAll carries the tunnel config.
+    const t = store.create({ label: 'Tun2', host: '127.0.0.1', user: 'a', sshHost: 'h', sshPort: 2222, sshUser: 'x' });
+    const exported = store.exportAll().connections.find((x) => x.id === t.id);
+    assert.equal(exported.sshHost, 'h');
+    assert.equal(exported.sshPort, 2222);
+  } finally { await cleanup(); }
+});
+
 test('ConnectionStore.delete removes the row', async () => {
   const { store, cleanup } = await freshStore();
   try {

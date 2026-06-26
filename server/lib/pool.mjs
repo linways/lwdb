@@ -17,6 +17,50 @@ function loadMysql() {
   return mysqlPromise;
 }
 
+// ssh2 is only pulled in when a connection actually tunnels — keep it off the
+// hot import path like mysql2.
+let ssh2Promise = null;
+function loadSsh2() {
+  ssh2Promise ??= import('ssh2').then((m) => m.Client);
+  return ssh2Promise;
+}
+
+/**
+ * Open an ssh2 client authenticated via the running ssh-agent. No keys or
+ * passwords are stored by lwdb — the agent holds them. Caller must call
+ * client.end() when the tunnel is no longer needed.
+ */
+async function openSshClient(connection) {
+  const agent = process.env.SSH_AUTH_SOCK
+    || (process.platform === 'win32' ? '\\\\.\\pipe\\openssh-ssh-agent' : null);
+  if (!agent) {
+    throw appError(Codes.DB_ERROR,
+      `SSH tunnel for ${connection.id}: no ssh-agent found (SSH_AUTH_SOCK unset). Start an agent and 'ssh-add' your key.`);
+  }
+  const Client = await loadSsh2();
+  const client = new Client();
+  await new Promise((resolve, reject) => {
+    client.once('ready', resolve);
+    client.once('error', (err) => reject(appError(Codes.DB_ERROR,
+      `SSH tunnel for ${connection.id} (${connection.sshUser}@${connection.sshHost}:${connection.sshPort || 22}): ${err.message}`, { cause: err })));
+    client.connect({
+      host: connection.sshHost,
+      port: Number(connection.sshPort) || 22,
+      username: connection.sshUser,
+      agent,
+    });
+  });
+  return client;
+}
+
+/** mysql2 `stream` factory: each physical MySQL connection forwards its own
+ *  channel over the shared ssh client to host:port (as seen from the SSH server). */
+function tunnelStream(client, connection) {
+  return (cb) => client.forwardOut(
+    '127.0.0.1', 0, connection.host, Number(connection.port) || 3306, cb,
+  );
+}
+
 const log = child('pool');
 
 const pools = new Map(); // key -> { pool, lastUsed, key, firstConnectMs }
@@ -76,6 +120,7 @@ async function closeKey(k) {
   if (!entry) return;
   pools.delete(k);
   try { await entry.pool.end(); } catch (_) { /* ignore */ }
+  try { entry.sshClient?.end(); } catch (_) { /* ignore */ }
 }
 
 export async function getPool(connection, db) {
@@ -93,7 +138,7 @@ export async function getPool(connection, db) {
     : activeConfig.connectTimeoutMs;
 
   const mysql = await loadMysql();
-  const pool = mysql.createPool({
+  const opts = {
     host: connection.host,
     port: connection.port,
     user: connection.user,
@@ -106,9 +151,14 @@ export async function getPool(connection, db) {
     dateStrings: true,
     decimalNumbers: true,
     connectTimeout,
-  });
+  };
+  // One ssh client per pool; mysql2 forwards each connection over it (stream
+  // option supersedes host/port).
+  const sshClient = connection.sshHost ? await openSshClient(connection) : null;
+  if (sshClient) opts.stream = tunnelStream(sshClient, connection);
+  const pool = mysql.createPool(opts);
 
-  pools.set(k, { pool, lastUsed: Date.now(), key: k });
+  pools.set(k, { pool, lastUsed: Date.now(), key: k, sshClient });
   evictLruIfNeeded();
   return pool;
 }
@@ -136,8 +186,9 @@ export async function poolQuery(pool, sql, args = [], { timeoutMs } = {}) {
 }
 
 export async function closeAll() {
-  for (const { pool } of pools.values()) {
+  for (const { pool, sshClient } of pools.values()) {
     try { await pool.end(); } catch (_) { /* ignore */ }
+    try { sshClient?.end(); } catch (_) { /* ignore */ }
   }
   pools.clear();
   if (sweepTimer) { clearInterval(sweepTimer); sweepTimer = null; }
@@ -269,17 +320,21 @@ export function poolStats() {
 export async function pingConnection(connection, { timeoutMs } = {}) {
   const start = Date.now();
   const mysql = await loadMysql();
-  const conn = await mysql.createConnection({
+  const sshClient = connection.sshHost ? await openSshClient(connection) : null;
+  const opts = {
     host: connection.host,
     port: Number(connection.port) || 3306,
     user: connection.user,
     password: connection.password || '',
     connectTimeout: timeoutMs || activeConfig.connectTimeoutMs,
-  });
+  };
+  if (sshClient) opts.stream = tunnelStream(sshClient, connection);
+  const conn = await mysql.createConnection(opts);
   try {
     await conn.ping();
     return { ok: true, ms: Date.now() - start };
   } finally {
     try { await conn.end(); } catch (_) { /* ignore */ }
+    try { sshClient?.end(); } catch (_) { /* ignore */ }
   }
 }

@@ -7,10 +7,11 @@ const testState = reactive({ status: 'idle', msg: '' }); // idle|testing|ok|err
 const form = reactive({
   id: null, label: '', host: 'localhost', port: 3306, user: 'root',
   password: '', color: '', group: '', notes: '', kind: 'local',
+  sshHost: '', sshPort: 22, sshUser: '',
 });
 
 function startAdd() {
-  Object.assign(form, { id: null, label: '', host: 'localhost', port: 3306, user: 'root', password: '', color: '', group: '', notes: '', kind: 'local' });
+  Object.assign(form, { id: null, label: '', host: 'localhost', port: 3306, user: 'root', password: '', color: '', group: '', notes: '', kind: 'local', sshHost: '', sshPort: 22, sshUser: '' });
   testState.status = 'idle'; testState.msg = '';
   editing.value = 'new';
 }
@@ -18,6 +19,7 @@ function startEdit(s) {
   Object.assign(form, {
     id: s.id, label: s.label, host: s.host, port: s.port, user: s.user,
     password: '', color: s.color || '', group: s.group || '', notes: s.notes || '', kind: s.kind,
+    sshHost: s.sshHost || '', sshPort: s.sshPort || 22, sshUser: s.sshUser || '',
   });
   testState.status = 'idle'; testState.msg = '';
   editing.value = s.id;
@@ -32,7 +34,7 @@ function toggleKind() { kindPinned.value = true; form.kind = form.kind === 'loca
 async function test() {
   testState.status = 'testing'; testState.msg = '';
   try {
-    const r = await actions.testConnection({ host: form.host, port: form.port, user: form.user, password: form.password });
+    const r = await actions.testConnection({ host: form.host, port: form.port, user: form.user, password: form.password, sshHost: form.sshHost, sshPort: form.sshPort, sshUser: form.sshUser });
     testState.status = 'ok'; testState.msg = `Connected in ${r.ms} ms`;
   } catch (err) { testState.status = 'err'; testState.msg = err.message; }
 }
@@ -159,6 +161,32 @@ onMounted(() => { if (!store.servers.length) startAdd(); });
         rows="2"
       /></label>
 
+      <fieldset class="ssh">
+        <legend>SSH tunnel · optional (uses ssh-agent)</legend>
+        <div class="row">
+          <label class="grow">SSH host<input
+            v-model="form.sshHost"
+            placeholder="bastion.example.com — blank = direct"
+          ></label>
+          <label class="port">SSH port<input
+            v-model.number="form.sshPort"
+            type="number"
+            min="1"
+            max="65535"
+          ></label>
+          <label class="grow">SSH user<input
+            v-model="form.sshUser"
+            placeholder="ubuntu"
+          ></label>
+        </div>
+        <p
+          v-if="form.sshHost"
+          class="ssh-hint"
+        >
+          Host/Port above are the DB address as seen from {{ form.sshHost }} (often 127.0.0.1:3306).
+        </p>
+      </fieldset>
+
       <div class="test-row">
         <button
           type="button"
@@ -208,6 +236,9 @@ onMounted(() => { if (!store.servers.length) startAdd(); });
 .row .grow { flex: 1; }
 .row .port input { width: 90px; }
 .kind-toggle { flex-direction: row; align-items: center; gap: 6px; align-self: end; }
+.ssh { border: 1px solid var(--border, #1f2937); border-radius: 6px; padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.ssh legend { font-size: 11px; color: var(--muted, #94a3b8); padding: 0 4px; }
+.ssh-hint { font-size: 11px; color: var(--muted, #94a3b8); margin: 0; }
 .test-row { display: flex; align-items: center; gap: 10px; }
 .test-msg.ok { color: #16a34a; }
 .test-msg.err { color: #dc2626; }

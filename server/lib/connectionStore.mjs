@@ -53,6 +53,9 @@ function row2conn(row) {
     color: row.color,
     group: row.group_tag,
     notes: row.notes,
+    sshHost: row.ssh_host,
+    sshPort: row.ssh_port,
+    sshUser: row.ssh_user,
     sortOrder: row.sort_order,
     writeProtected: !!row.write_protected,
     createdAt: row.created_at,
@@ -102,13 +105,15 @@ export class ConnectionStore {
     const id = this._uniqueId(desired);
     const now = new Date().toISOString();
     const kind = deriveKind(input.host, input.kind);
+    const sshHost = input.sshHost || null;
     this.db.prepare(
       `INSERT INTO connections
-         (id, label, kind, host, port, user, password, color, group_tag, notes, sort_order, write_protected, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, label, kind, host, port, user, password, color, group_tag, notes, ssh_host, ssh_port, ssh_user, sort_order, write_protected, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       id, label, kind, input.host, Number(input.port) || 3306, input.user,
       this.secret.encrypt(input.password || ''), input.color || null, input.group || null, input.notes || null,
+      sshHost, sshHost ? (Number(input.sshPort) || 22) : null, sshHost ? (input.sshUser || null) : null,
       Number(input.sortOrder) || 0, input.writeProtected ? 1 : 0, now, now,
     );
     return this.get(id);
@@ -123,14 +128,16 @@ export class ConnectionStore {
     else if (patch.host !== undefined) kind = deriveKind(patch.host);
     else kind = existing.kind;
     const now = new Date().toISOString();
+    const sshHost = merged.sshHost || null;
     this.db.prepare(
       `UPDATE connections SET
          label = ?, kind = ?, host = ?, port = ?, user = ?, password = ?,
-         color = ?, group_tag = ?, notes = ?, sort_order = ?, write_protected = ?, updated_at = ?
+         color = ?, group_tag = ?, notes = ?, ssh_host = ?, ssh_port = ?, ssh_user = ?, sort_order = ?, write_protected = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       merged.label, kind, merged.host, Number(merged.port) || 3306, merged.user,
       this.secret.encrypt(merged.password ?? ''), merged.color ?? null, merged.group ?? null, merged.notes ?? null,
+      sshHost, sshHost ? (Number(merged.sshPort) || 22) : null, sshHost ? (merged.sshUser || null) : null,
       Number(merged.sortOrder) || 0, merged.writeProtected ? 1 : 0, now, id,
     );
     return this.get(id);
@@ -196,6 +203,7 @@ export class ConnectionStore {
       connections: this.all().map((c) => ({
         id: c.id, label: c.label, kind: c.kind, host: c.host, port: c.port,
         user: c.user, password: c.password, color: c.color, group: c.group, notes: c.notes,
+        sshHost: c.sshHost, sshPort: c.sshPort, sshUser: c.sshUser,
         sortOrder: c.sortOrder, writeProtected: c.writeProtected,
       })),
     };

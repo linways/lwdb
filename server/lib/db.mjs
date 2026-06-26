@@ -83,6 +83,13 @@ const MIGRATIONS = [
 
   // v5 — attribution: which interface ran each query (ui / cli / mcp).
   `ALTER TABLE query_history ADD COLUMN actor TEXT;`,
+
+  // v6 — optional SSH tunnel (ssh-agent auth). When ssh_host is set, the MySQL
+  // connection is forwarded through it; host/port then mean the DB address as
+  // seen FROM the SSH server (e.g. 127.0.0.1:3306). NULL ssh_host = direct.
+  `ALTER TABLE connections ADD COLUMN ssh_host TEXT;
+   ALTER TABLE connections ADD COLUMN ssh_port INTEGER;
+   ALTER TABLE connections ADD COLUMN ssh_user TEXT;`,
 ];
 
 export async function openDb(dbPath) {
