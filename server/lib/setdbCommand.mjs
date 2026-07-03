@@ -37,31 +37,89 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
     return;
   }
 
+  // --status: show the current target AND a live connection health check.
   if (flags.status) {
     let text;
     try { text = await readFile(outPath, 'utf8'); } catch { return die(`no active target at ${outPath}`); }
-    return emit({ path: outPath, ...parseActiveDb(text) });
+    const parsed = parseActiveDb(text);
+    const out = { path: outPath, ...parsed };
+    if (parsed.server && !flags['no-check']) {
+      try { out.connection = await backend.testConnection({ id: parsed.server }); }
+      catch (e) { out.connection = { ok: false, error: e.message }; }
+    }
+    if (wantJson) return emit(out);
+    process.stdout.write(`db:      ${parsed.dbName}\ncollege: ${parsed.collegeCode}\nserver:  ${parsed.server || '(unknown)'}  (${parsed.host})\n`);
+    if (out.connection) {
+      process.stdout.write(`status:  ${out.connection.ok ? `● connected (${out.connection.ms}ms)` : `○ DOWN — ${out.connection.error}`}\n`);
+    }
+    return;
   }
 
   const group = found.config.group;
-  const inGroup = (await backend.listServers()).filter((s) => !group || s.group === group);
+  const servers = (await backend.listServers()).filter((s) => !group || s.group === group);
+  const isServer = (id) => { try { return !!registry.getConnection(id); } catch { return false; } };
 
-  let serverId = positional[0];
-  if (!serverId) {
-    if (wantJson) return die('usage: setdb <server> <db> [college]');
-    inGroup.forEach((s, i) => process.stdout.write(`  ${i + 1}. ${s.id}  (${s.host})\n`));
+  // Resolve which server + db to set, from the args or interactively.
+  let serverId = null;
+  let dbName = null;
+  let collegeArg = flags.code || null;
+  const a0 = positional[0];
+  let foundBySearch = false;
+
+  if (a0 && isServer(a0)) {
+    // Explicit: setdb <server> [db] [college]
+    serverId = a0; dbName = positional[1] || null; collegeArg = collegeArg || positional[2] || null;
+  } else if (a0) {
+    // "connect <dbname>": a0 is not a server id → treat as a db name and find
+    // which server hosts it. setdb <db> [college].
+    dbName = a0; collegeArg = collegeArg || positional[1] || null;
+    if (!wantJson) process.stdout.write(`Searching for '${dbName}' across ${servers.length} ${group || ''} server(s)…\n`);
+    const hits = [];
+    for (const s of servers) {
+      try { if ((await backend.listDatabases(s.id)).includes(dbName)) hits.push(s.id); }
+      catch { /* unreachable server — skip */ }
+    }
+    if (!hits.length) return die(`db '${dbName}' not found on any reachable ${group || ''} server`);
+    foundBySearch = true;
+    if (hits.length === 1) { serverId = hits[0]; if (!wantJson) process.stdout.write(`Found on ${serverId}.\n`); }
+    else if (wantJson) return die(`db '${dbName}' found on multiple servers: ${hits.join(', ')} — run: setdb <server> ${dbName}`);
+    else {
+      process.stdout.write(`Found on ${hits.length} servers:\n`);
+      hits.forEach((h, i) => process.stdout.write(`  ${i + 1}. ${h}\n`));
+      const pick = await ask('Pick server: ');
+      serverId = hits[Number(pick) - 1] || hits[0];
+    }
+  } else {
+    // No args → interactive server pick.
+    if (wantJson) return die('usage: setdb <server> <db> [college]  |  setdb <db>  (search across servers)');
+    servers.forEach((s, i) => process.stdout.write(`  ${i + 1}. ${s.id}  (${s.host})\n`));
     const pick = await ask('Select server: ');
-    serverId = inGroup[Number(pick) - 1]?.id || pick;
+    serverId = servers[Number(pick) - 1]?.id || pick;
   }
+
   let conn;
   try { conn = registry.getConnection(serverId); } catch { conn = null; }
   if (!conn) return die(`unknown server '${serverId}'`);
 
-  let dbName = positional[1];
-  if (!dbName && !wantJson) dbName = await ask('Enter db name: ');
+  // db still missing (explicit-server or interactive without db) → list & pick.
+  if (!dbName && !wantJson) {
+    let dbs = [];
+    try { dbs = await backend.listDatabases(serverId); } catch { /* offline */ }
+    if (dbs.length) {
+      const filter = (await ask(`Filter ${dbs.length} dbs on ${serverId} (enter = all): `)).toLowerCase();
+      const shown = filter ? dbs.filter((d) => d.toLowerCase().includes(filter)) : dbs;
+      shown.slice(0, 50).forEach((d, i) => process.stdout.write(`  ${i + 1}. ${d}\n`));
+      if (shown.length > 50) process.stdout.write(`  … and ${shown.length - 50} more (narrow with a filter)\n`);
+      const pick = await ask('Select db (number, or type a name): ');
+      dbName = /^\d+$/.test(pick) ? (shown[Number(pick) - 1] || '') : pick;
+    } else {
+      dbName = await ask('Enter db name: ');
+    }
+  }
   if (!dbName) return die('empty db name');
 
-  if (found.config.verify && !flags['no-verify']) {
+  // Verify the db exists on the server (skip if search already proved it).
+  if (found.config.verify && !flags['no-verify'] && !foundBySearch) {
     try {
       const dbs = await backend.listDatabases(serverId);
       if (!dbs.includes(dbName)) {
@@ -72,13 +130,21 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
     } catch { /* offline / no daemon: skip verification */ }
   }
 
+  // Ensure the connection is actually alive before setting it.
+  if (!flags['no-verify']) {
+    try {
+      const h = await backend.testConnection({ id: serverId });
+      if (!wantJson && h?.ok) process.stdout.write(`Connection OK (${h.ms}ms).\n`);
+    } catch (e) { return die(`connection to ${serverId} failed: ${e.message}`); }
+  }
+
   const map = await loadCollegeMap();
-  let code = resolveCollegeCode({ override: flags.code || positional[2], dbName, map });
+  let code = resolveCollegeCode({ override: collegeArg, dbName, map });
   if (!code && !wantJson) code = (await ask('College code [TEST_DBNAME]: ')).toUpperCase();
   if (!code) code = 'TEST_DBNAME';
 
   const text = renderActiveDb({
-    dbName, collegeCode: code, host: conn.host, port: conn.port, user: conn.user, password: conn.password,
+    dbName, collegeCode: code, host: conn.host, port: conn.port, user: conn.user, password: conn.password, server: serverId,
   });
   if (flags.print) return emit(text);
   await writeTarget(outPath, text);
