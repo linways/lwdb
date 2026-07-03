@@ -11,8 +11,10 @@ export function hostString(host, port) {
   return port && Number(port) !== 3306 ? `${host}:${port}` : String(host);
 }
 
-export function renderActiveDb({ dbName, collegeCode, host, port, user, password }) {
-  return '<?php\n'
+export function renderActiveDb({ dbName, collegeCode, host, port, user, password, server }) {
+  // Stamp the source connection id as a PHP comment so `--status` can health-check it.
+  const tag = server ? `// setdb server=${server}\n` : '';
+  return '<?php\n' + tag
     + `$DB_NAME = $AMS_AUTONOMOUS_DB_NAME = ${phpStr(dbName)};\n`
     + `$COLLEGE_CODE = ${phpStr(collegeCode)};\n`
     + `$AMS_AUTONOMOUS_DB_HOST = $HOST = $DB_HOST = ${phpStr(hostString(host, port))};\n`
@@ -24,10 +26,12 @@ export function renderActiveDb({ dbName, collegeCode, host, port, user, password
 const STR = "'((?:\\\\.|[^'\\\\])*)'"; // single-quoted value, escape-aware
 export function parseActiveDb(text) {
   const pick = (re) => { const m = text.match(new RegExp(re, 's')); return m ? m[1] : null; };
+  const serverMatch = text.match(/\/\/ setdb server=(\S+)/);
   return {
     dbName: pick(`\\$DB_NAME\\s*=.*?=\\s*${STR}`),
     collegeCode: pick(`\\$COLLEGE_CODE\\s*=\\s*${STR}`),
     host: pick(`\\$HOST\\s*=.*?=\\s*${STR}`),
+    server: serverMatch ? serverMatch[1] : null,
   };
 }
 

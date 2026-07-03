@@ -391,14 +391,21 @@ connection store as every other command (`registry.getConnection`), so credentia
 leave lwdb. Interactive on a TTY; JSON + strict exit codes for agents.
 
 ```bash
-setdb                            # interactive: pick server → db → college code
-setdb V4-server3378 mydb SJC     # direct
-lwdb --json setdb V4-server3378 mydb SJC   # agent: JSON, no prompts
-lwdb setdb --status              # show the current active target
+setdb                            # interactive: pick server → db (from live lists) → college
+setdb test_sfchyd2906            # just a db name → searches every server, ensures conn, sets it
+setdb V4-server3378 mydb SJC     # explicit server + db + college
+lwdb --json setdb test_sfchyd2906          # agent: JSON, no prompts, strict exit codes
+lwdb setdb --status              # current target + LIVE connection health (● connected / ○ DOWN)
 lwdb setdb --print V4-server3378 mydb      # render to stdout, don't write
 lwdb setdb --init                # create active-db.php + print the include line to paste
-lwdb setdb --no-verify ...       # skip checking the db exists on the server
+lwdb setdb --no-verify ...       # skip the db-exists check and the connection ping
 ```
+
+**Arg resolution:** first arg matching a server id → `setdb <server> [db] [college]`; first arg that
+is *not* a server id → treated as a **db name** and searched across every server in the group (sets it
+if unique, prompts on multiple, errors on none). That's the "connect `<dbname>`" path — the user names
+only the db and `setdb` finds the server. Plain lookups when you need them: `lwdb servers`,
+`lwdb dbs <server> [pattern]`, `lwdb find-table <server> <name>`.
 (A `setdb` shim forwarding to `lwdb setdb` is optional: `printf '#!/usr/bin/env sh\nexec lwdb setdb "$@"\n' > ~/.local/bin/setdb && chmod +x ~/.local/bin/setdb`.)
 
 **Config** (auto-seeded by `install`/`update`, never clobbered):

@@ -21,6 +21,13 @@ test('parseActiveDb round-trips db and host', () => {
   const p = parseActiveDb(out);
   assert.equal(p.dbName, 'mydb');
   assert.equal(p.host, 'h');
+  assert.equal(p.server, null); // no server stamped
+});
+
+test('renderActiveDb stamps server id; parseActiveDb reads it back', () => {
+  const out = renderActiveDb({ dbName: 'd', collegeCode: 'X', host: 'h', port: 3306, user: 'u', password: 'p', server: 'V3-server63' });
+  assert.match(out, /^<\?php\n\/\/ setdb server=V3-server63\n/);
+  assert.equal(parseActiveDb(out).server, 'V3-server63');
 });
 
 test('resolveCollegeCode precedence', () => {
