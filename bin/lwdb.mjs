@@ -145,7 +145,7 @@ async function helpJson() {
       cmd('conn-test', 'connections', 'Ping a connection (saved id or inline host/user).', [a('id')], { host: '', user: '', port: '', password: '', 'ssh-host': '', 'ssh-port': '', 'ssh-user': '' }),
       cmd('import', 'connections', 'Bulk upsert connections from JSON.', [a('file', true)]),
       cmd('export', 'connections', 'Dump connections (includes passwords).', [a('file')]),
-      cmd('setdb', 'system', 'Point the local Linways app at a server+db by rendering active-db.php.', [a('server'), a('db'), a('college')], { json: '', print: 'Render to stdout, do not write.', status: 'Print the current active target.', code: 'College code override.', 'no-verify': 'Skip checking the db exists on the server.' }),
+      cmd('setdb', 'system', 'Point the local Linways app at a server+db by rendering active-db.php.', [a('server'), a('db'), a('college')], { json: '', print: 'Render to stdout, do not write.', status: 'Print the current active target.', init: 'Create active-db.php + print the include line to paste (LAST) into conf files.', code: 'College code override.', 'no-verify': 'Skip checking the db exists on the server.' }),
       cmd('agent-writes', 'system', 'Show or set the master write switch.', [a('on|off')]),
       cmd('secure', 'system', 'Credential encryption status / migrate legacy plaintext passwords.', [a('status|migrate')]),
       cmd('serve', 'system', 'Run the HTTP API + Web UI on :4321.'),
