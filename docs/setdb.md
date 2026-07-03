@@ -68,15 +68,29 @@ college code. (Legacy fallback: `~/.config/linways/college-codes.json`.)
 ## Usage
 
 ```sh
-setdb                            # interactive: pick server, type db, college code
-setdb V4-server3378 mydb         # direct
-setdb V4-server3378 mydb SJC     # with college code
-setdb --json V4-server3378 mydb SJC   # agents: JSON out, no prompts, strict exit codes
-setdb --status                   # show the current active target
+setdb                            # interactive: pick server, then pick db from a live list
+setdb test_sfchyd2906            # just a db name → searches every server, ensures the connection, sets it
+setdb test_sfchyd2906 SFC        # …with a college code
+setdb V4-server3378 mydb         # explicit server + db
+setdb V4-server3378 mydb SJC     # …with college code
+setdb --json test_sfchyd2906     # agents: JSON out, no prompts, strict exit codes
+setdb --status                   # show the current target + a LIVE connection health check
 setdb --print V4-server3378 mydb # render to stdout without writing (dry run)
 setdb --init                     # create active-db.php + print the include line to paste
-setdb --no-verify ...            # skip checking the db exists on the server
+setdb --no-verify ...            # skip the db-exists check and the connection ping
 ```
+
+**How the args resolve:**
+- First arg is a **known server id** → `setdb <server> [db] [college]` (lists dbs to pick if you omit one).
+- First arg is **anything else** → treated as a **db name**; `setdb` lists databases on every
+  server in the group and sets the one that has it (prompts if several match, errors if none).
+- No args → interactive: pick a server, then a database, both from live lists.
+
+**Checking what's connected:** `setdb --status` prints the active db / college / server **and**
+pings it (`● connected (301ms)` or `○ DOWN — <error>`). Add `--no-check` to skip the ping.
+
+**Standalone lookups** (plain lwdb): `lwdb servers` lists every server; `lwdb dbs <server> [pattern]`
+lists databases on one; `lwdb find-table <server> <name>` finds a table across a server's databases.
 
 ## How it works
 
