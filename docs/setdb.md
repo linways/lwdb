@@ -43,7 +43,11 @@ college code. (Legacy fallback: `~/.config/linways/college-codes.json`.)
 ## One-time setup
 
 1. Have lwdb with your servers: `lwdb servers` (import shared ones with `lwdb import <file.json>`).
-2. Write `~/.lwdb/setdb.json` with your absolute paths (above).
+2. `~/.lwdb/setdb.json` + `~/.lwdb/college-codes.json` are **seeded automatically** by
+   `lwdb install`/`lwdb update` (never overwriting an edited config). Just open
+   `~/.lwdb/setdb.json` and fill in **`includeInto`** with your app's conf-file paths
+   (that part is machine-specific). Adjust `output` only if you don't want the default
+   `~/.lwdb/dev/active-db.php`.
 3. Wire the include — run `setdb --init`. It creates the target file and prints the
    exact line to paste into each config file (the **full path**, since the file lives in
    `~/.lwdb/`, not next to the conf files):
