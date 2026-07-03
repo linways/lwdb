@@ -1,0 +1,39 @@
+// Renders/parses the Linways active-db include. Variable NAMES are a fixed
+// contract consumed by the app's conf files — do not rename them.
+
+// PHP single-quoted literal: only ' and \ are special. $, %, @ pass through.
+function phpStr(v) {
+  return "'" + String(v).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "'";
+}
+
+// Old dbconfs embedded the port in the host when non-default (e.g. 127.0.0.1:3378).
+export function hostString(host, port) {
+  return port && Number(port) !== 3306 ? `${host}:${port}` : String(host);
+}
+
+export function renderActiveDb({ dbName, collegeCode, host, port, user, password }) {
+  return '<?php\n'
+    + `$DB_NAME = $AMS_AUTONOMOUS_DB_NAME = ${phpStr(dbName)};\n`
+    + `$COLLEGE_CODE = ${phpStr(collegeCode)};\n`
+    + `$AMS_AUTONOMOUS_DB_HOST = $HOST = $DB_HOST = ${phpStr(hostString(host, port))};\n`
+    + `$AMS_AUTONOMOUS_DB_USER = $USER = $DB_USER = ${phpStr(user)};\n`
+    + `$AMS_AUTONOMOUS_DB_PASSWD = $PASSWD = $DB_PASSWD = ${phpStr(password)};\n`
+    + '?>\n';
+}
+
+const STR = "'((?:\\\\.|[^'\\\\])*)'"; // single-quoted value, escape-aware
+export function parseActiveDb(text) {
+  const pick = (re) => { const m = text.match(new RegExp(re, 's')); return m ? m[1] : null; };
+  return {
+    dbName: pick(`\\$DB_NAME\\s*=.*?=\\s*${STR}`),
+    collegeCode: pick(`\\$COLLEGE_CODE\\s*=\\s*${STR}`),
+    host: pick(`\\$HOST\\s*=.*?=\\s*${STR}`),
+  };
+}
+
+export function resolveCollegeCode({ override, dbName, map }) {
+  if (override) return String(override).toUpperCase();
+  const key = String(dbName || '').toUpperCase();
+  if (map && map[key]) return map[key];
+  return null;
+}

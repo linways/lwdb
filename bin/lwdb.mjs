@@ -145,12 +145,13 @@ async function helpJson() {
       cmd('conn-test', 'connections', 'Ping a connection (saved id or inline host/user).', [a('id')], { host: '', user: '', port: '', password: '', 'ssh-host': '', 'ssh-port': '', 'ssh-user': '' }),
       cmd('import', 'connections', 'Bulk upsert connections from JSON.', [a('file', true)]),
       cmd('export', 'connections', 'Dump connections (includes passwords).', [a('file')]),
+      cmd('setdb', 'system', 'Point the local Linways app at a server+db by rendering active-db.php.', [a('server'), a('db'), a('college')], { json: '', print: 'Render to stdout, do not write.', status: 'Print the current active target.', init: 'Create active-db.php + print the include line to paste (LAST) into conf files.', code: 'College code override.', 'no-verify': 'Skip checking the db exists on the server.' }),
       cmd('agent-writes', 'system', 'Show or set the master write switch.', [a('on|off')]),
       cmd('secure', 'system', 'Credential encryption status / migrate legacy plaintext passwords.', [a('status|migrate')]),
       cmd('serve', 'system', 'Run the HTTP API + Web UI on :4321.'),
       cmd('mcp', 'system', 'Run the MCP server over stdio for AI clients.'),
       cmd('doctor', 'system', 'Diagnose the install.'),
-      cmd('update', 'system', 'git pull + reinstall deps + refresh skill.'),
+      cmd('update', 'system', 'Update core + desktop to the latest release (prompts; -y to skip).'),
       cmd('update-skill', 'system', 'Refresh only the agent skill snapshot.'),
       cmd('uninstall', 'system', 'Remove CLI link + skill symlinks.'),
     ],
@@ -221,9 +222,10 @@ BACKUP / RESTORE
 
 SYSTEM
   doctor                            # diagnose the install
-  update                            # git pull + reinstall deps + refresh skill
+  update [-y]                       # update core + desktop to latest release (-y skips the prompt)
   update-skill                      # refresh only the agent skill snapshot
   uninstall                         # remove CLI link + skill symlinks
+  setdb [server] [db] [college]     # set local app DB (interactive; --json for agents)
   agent-writes [on|off]             # show or set the master switch for CLI/agent writes
   secure [status|migrate]           # passwords are AES-256-GCM encrypted at rest; migrate re-encrypts legacy rows
   (first-time install: npm run setup  — or: node install.mjs install)
@@ -288,7 +290,9 @@ async function runInstaller(sub) {
   const { dirname, resolve, join } = await import('node:path');
   const here = dirname(fileURLToPath(import.meta.url));
   const installScript = join(resolve(here, '..'), 'install.mjs');
-  const result = spawnSync(process.execPath, [installScript, sub], { stdio: 'inherit' });
+  // Forward any extra args (e.g. `lwdb update -y`) to the installer.
+  const extra = process.argv.slice(3);
+  const result = spawnSync(process.execPath, [installScript, sub, ...extra], { stdio: 'inherit' });
   process.exit(result.status ?? 0);
 }
 
@@ -328,6 +332,12 @@ async function main() {
       emit(await backend.listServers(), {
         table: true, columns: ['id', 'label', 'kind', 'host', 'port', 'user'],
       });
+      break;
+    }
+
+    case 'setdb': {
+      const { runSetdb } = await import('../server/lib/setdbCommand.mjs');
+      await runSetdb({ registry, backend, flags, positional, wantJson, emit, die });
       break;
     }
 

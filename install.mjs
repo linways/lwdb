@@ -98,7 +98,7 @@ function printHelp() {
 
 Usage:
   node install.mjs install        First-time setup
-  node install.mjs update         git pull + reinstall deps + refresh skill
+  node install.mjs update         update core + desktop to latest release (-y to skip prompt)
   node install.mjs doctor         Run diagnostics
   node install.mjs status         Show what's installed
   node install.mjs update-skill   Refresh agent skill snapshot only
@@ -128,6 +128,7 @@ function install() {
   snapshotSkill();
   linkSkillsForAllAITools();
   writeLauncherManifest();
+  seedSetdbConfig();
 
   console.log('');
   console.log(c('green', '✓ install complete'));
@@ -139,23 +140,134 @@ function install() {
   console.log(`  desktop app (optional): ${c('cyan', 'npm run tauri:build')} then install the .deb`);
 }
 
-function update() {
+async function update() {
   banner('update');
   if (!isGitRepo()) {
     console.error(c('red', `✗ ${REPO_ROOT} is not a git checkout — can't update.`));
     console.error(`  Did you clone the repo? Try: ${c('cyan', 'git clone <repo-url> && cd lwdb && node install.mjs install')}`);
     process.exit(1);
   }
+
+  // Release-aware: compare the latest GitHub release to the installed desktop
+  // (.deb) version. Only the desktop is versioned by release — the core is a
+  // git checkout, so `git pull` always gets the latest core code regardless.
+  const rel = await fetchLatestRelease();
+  const installed = installedDesktopVersion();
+  const desktopBehind = rel && installed && cmpSemver(rel.version, installed) > 0;
+
+  if (desktopBehind) {
+    console.log(c('bold', '  Update available: ') + c('dim', `v${installed}`) + ' → ' + c('green', `v${rel.version}`));
+    if (rel.body && rel.body.trim()) {
+      console.log('');
+      console.log(c('bold', '  Changelog:'));
+      for (const line of rel.body.trim().split('\n')) console.log(c('dim', `    ${line}`));
+    }
+    console.log('');
+    if (!confirm('  Proceed with update (core + desktop)?')) {
+      console.log(c('yellow', '  cancelled.'));
+      return;
+    }
+  } else if (rel && installed) {
+    console.log(c('dim', `  Desktop up to date (v${installed}). Refreshing core…`));
+  } else if (rel) {
+    console.log(c('dim', `  Latest release: v${rel.version} (couldn't detect installed desktop — skipping desktop step). Refreshing core…`));
+  } // rel === null: offline / API down — just refresh the core.
+
   gitPull();
   npmInstall();
   npmLink();
   snapshotSkill();
   linkSkillsForAllAITools();
   writeLauncherManifest();
+  seedSetdbConfig();
+
+  if (desktopBehind) {
+    if (rel.debUrl) await installDeb(rel.debUrl);
+    else {
+      console.log('');
+      console.log(c('yellow', `  No .deb asset in the release. Install manually: ${rel.htmlUrl}`));
+    }
+  }
+
   console.log('');
   console.log(c('green', '✓ update complete'));
   console.log('');
   doctor({ exitOnFail: false });
+}
+
+// Latest release on GitHub: { version, body, debUrl, htmlUrl } or null on failure.
+async function fetchLatestRelease() {
+  const slug = process.env.LW_DB_RELEASES_REPO || 'linways/lwdb';
+  try {
+    const r = await fetch(`https://api.github.com/repos/${slug}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'lwdb-updater' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return null;
+    const rel = await r.json();
+    const version = String(rel.tag_name || rel.name || '').replace(/^v/, '');
+    if (!version) return null;
+    return { version, body: rel.body || '', debUrl: pickDebAsset(rel.assets), htmlUrl: rel.html_url || `https://github.com/${slug}/releases` };
+  } catch (_) { return null; }
+}
+
+// Installed desktop version via dpkg, or null (non-deb system / not installed).
+// ponytail: .deb only. rpm/AppImage/macOS users fall through to the manual link.
+function installedDesktopVersion() {
+  const v = tryCapture("dpkg-query -W -f='${Version}' lwdb 2>/dev/null");
+  return v ? v.trim().replace(/^v/, '') : null;
+}
+
+// Download the .deb and install it with sudo dpkg -i (prompts for password).
+async function installDeb(url) {
+  console.log('');
+  console.log(c('bold', 'desktop update'));
+  const dest = path.join(os.tmpdir(), `lwdb-update-${process.pid}.deb`);
+  try {
+    console.log(c('dim', `  downloading ${url}`));
+    const res = await fetch(url, { headers: { 'User-Agent': 'lwdb-updater' }, redirect: 'follow' });
+    if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+    fs.writeFileSync(dest, Buffer.from(await res.arrayBuffer()));
+    console.log(c('dim', '  installing (sudo dpkg -i) — you may be prompted for your password'));
+    run(`sudo dpkg -i ${JSON.stringify(dest)}`);
+    console.log(c('green', '  ✓ desktop updated — relaunch lwdb to pick it up'));
+  } catch (err) {
+    console.error(c('yellow', `  desktop update failed: ${err.message}`));
+    console.error(c('yellow', '  If dpkg reported missing deps: sudo apt-get -f install'));
+  } finally {
+    try { fs.unlinkSync(dest); } catch (_) {}
+  }
+}
+
+// Synchronous y/N prompt. Honors --yes/-y; refuses to assume in non-TTY
+// (lwdb never prompts non-interactively).
+function confirm(question) {
+  if (process.argv.includes('-y') || process.argv.includes('--yes')) return true;
+  if (!process.stdin.isTTY) {
+    console.error(c('yellow', '  non-interactive — pass --yes to proceed.'));
+    return false;
+  }
+  process.stdout.write(`${question} [y/N] `);
+  const buf = Buffer.alloc(64);
+  let bytes = 0;
+  try { bytes = fs.readSync(0, buf, 0, buf.length, null); } catch (_) { return false; }
+  const ans = buf.toString('utf8', 0, bytes).trim().toLowerCase();
+  return ans === 'y' || ans === 'yes';
+}
+
+// Compare dotted semver: >0 if a newer than b. Mirrors server/index.mjs.
+export function cmpSemver(a, b) {
+  const pa = String(a).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).replace(/^v/, '').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i += 1) if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) - (pb[i] || 0);
+  return 0;
+}
+
+// Prefer an amd64 .deb; fall back to any .deb. null if none.
+export function pickDebAsset(assets) {
+  if (!Array.isArray(assets)) return null;
+  const deb = assets.find((a) => /_amd64\.deb$/.test(a.name)) || assets.find((a) => /\.deb$/.test(a.name));
+  return deb ? deb.browser_download_url : null;
 }
 
 function updateSkillOnly() {
@@ -293,6 +405,34 @@ export function writeLauncherManifest(dir = LWDB_DIR, { quiet = false } = {}) {
   fs.writeFileSync(path.join(dir, 'launcher.json'), JSON.stringify(manifest, null, 2) + '\n');
   if (!quiet) console.log(c('green', `✓ launcher manifest -> ${path.join(dir, 'launcher.json')}`));
   return manifest;
+}
+
+// Org-wide college-code defaults shipped with lwdb (used by `setdb` to auto-fill
+// the college code). Machine-agnostic, so safe to ship.
+const DEFAULT_COLLEGE_CODES = {
+  IIIC: 'IIIC', IAGI: 'IAGI', ASM: 'ASMPTN', IJK: 'CHRISTIJK',
+  MBCET: 'MBCET', MES: 'DGMMES', SBC: 'SBCOLLEGE', SCEK: 'SCEK',
+  SJC: 'SJC', SJCC: 'SJCC', STJOSEPHS: 'STJOSEPHS', STTHOMAS: 'STTHOMAS',
+};
+
+// Seed setdb's config into ~/.lwdb so `setdb` works right after install/update.
+// Only writes when absent — never clobbers a dev's edited config. `includeInto`
+// (which conf files to wire) is machine-specific, so it ships empty for the dev
+// to fill (then run `setdb --init`).
+export function seedSetdbConfig(dir = LWDB_DIR, { quiet = false } = {}) {
+  ensureDir(dir);
+  const setdbPath = path.join(dir, 'setdb.json');
+  if (!exists(setdbPath)) {
+    const tmpl = { group: 'linways', output: path.join(dir, 'dev', 'active-db.php'), verify: true, includeInto: [] };
+    fs.writeFileSync(setdbPath, JSON.stringify(tmpl, null, 2) + '\n');
+    if (!quiet) console.log(c('green', `✓ setdb config -> ${setdbPath}`) + c('dim', '  (add your conf files to "includeInto")'));
+  }
+  const collegePath = path.join(dir, 'college-codes.json');
+  if (!exists(collegePath)) {
+    fs.writeFileSync(collegePath, JSON.stringify(DEFAULT_COLLEGE_CODES, null, 2) + '\n');
+    if (!quiet) console.log(c('green', `✓ college codes -> ${collegePath}`));
+  }
+  return { setdbPath, collegePath };
 }
 
 function linkSkillsForAllAITools() {
