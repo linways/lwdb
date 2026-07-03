@@ -4,7 +4,8 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { writeLauncherManifest, cmpSemver, pickDebAsset } from '../install.mjs';
+import { writeFile } from 'node:fs/promises';
+import { writeLauncherManifest, cmpSemver, pickDebAsset, seedSetdbConfig } from '../install.mjs';
 
 test('cmpSemver orders releases correctly', () => {
   assert.ok(cmpSemver('0.4.0', '0.1.2') > 0);
@@ -23,6 +24,28 @@ test('pickDebAsset prefers amd64 .deb, falls back, else null', () => {
   assert.equal(pickDebAsset([{ name: 'x_arm64.deb', browser_download_url: 'only' }]), 'only');
   assert.equal(pickDebAsset([{ name: 'x.AppImage', browser_download_url: 'a' }]), null);
   assert.equal(pickDebAsset(undefined), null);
+});
+
+test('seedSetdbConfig ships starter config, empty includeInto, never clobbers', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'lwdb-seed-'));
+  try {
+    const { setdbPath, collegePath } = seedSetdbConfig(dir, { quiet: true });
+    const cfg = JSON.parse(await readFile(setdbPath, 'utf8'));
+    assert.equal(cfg.group, 'linways');
+    assert.ok(cfg.output.endsWith('/dev/active-db.php'), `output: ${cfg.output}`);
+    assert.deepEqual(cfg.includeInto, []); // machine-specific — dev fills this in
+    const codes = JSON.parse(await readFile(collegePath, 'utf8'));
+    assert.equal(codes.MES, 'DGMMES');
+
+    // second run must NOT overwrite a dev's edited config
+    await writeFile(setdbPath, JSON.stringify({ group: 'mine', output: '/x', verify: false, includeInto: ['/a.php'] }), 'utf8');
+    seedSetdbConfig(dir, { quiet: true });
+    const after = JSON.parse(await readFile(setdbPath, 'utf8'));
+    assert.deepEqual(after.includeInto, ['/a.php']);
+    assert.equal(after.group, 'mine');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('writeLauncherManifest writes a valid manifest to the given dir', async () => {

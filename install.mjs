@@ -128,6 +128,7 @@ function install() {
   snapshotSkill();
   linkSkillsForAllAITools();
   writeLauncherManifest();
+  seedSetdbConfig();
 
   console.log('');
   console.log(c('green', '✓ install complete'));
@@ -178,6 +179,7 @@ async function update() {
   snapshotSkill();
   linkSkillsForAllAITools();
   writeLauncherManifest();
+  seedSetdbConfig();
 
   if (desktopBehind) {
     if (rel.debUrl) await installDeb(rel.debUrl);
@@ -403,6 +405,34 @@ export function writeLauncherManifest(dir = LWDB_DIR, { quiet = false } = {}) {
   fs.writeFileSync(path.join(dir, 'launcher.json'), JSON.stringify(manifest, null, 2) + '\n');
   if (!quiet) console.log(c('green', `✓ launcher manifest -> ${path.join(dir, 'launcher.json')}`));
   return manifest;
+}
+
+// Org-wide college-code defaults shipped with lwdb (used by `setdb` to auto-fill
+// the college code). Machine-agnostic, so safe to ship.
+const DEFAULT_COLLEGE_CODES = {
+  IIIC: 'IIIC', IAGI: 'IAGI', ASM: 'ASMPTN', IJK: 'CHRISTIJK',
+  MBCET: 'MBCET', MES: 'DGMMES', SBC: 'SBCOLLEGE', SCEK: 'SCEK',
+  SJC: 'SJC', SJCC: 'SJCC', STJOSEPHS: 'STJOSEPHS', STTHOMAS: 'STTHOMAS',
+};
+
+// Seed setdb's config into ~/.lwdb so `setdb` works right after install/update.
+// Only writes when absent — never clobbers a dev's edited config. `includeInto`
+// (which conf files to wire) is machine-specific, so it ships empty for the dev
+// to fill (then run `setdb --init`).
+export function seedSetdbConfig(dir = LWDB_DIR, { quiet = false } = {}) {
+  ensureDir(dir);
+  const setdbPath = path.join(dir, 'setdb.json');
+  if (!exists(setdbPath)) {
+    const tmpl = { group: 'linways', output: path.join(dir, 'dev', 'active-db.php'), verify: true, includeInto: [] };
+    fs.writeFileSync(setdbPath, JSON.stringify(tmpl, null, 2) + '\n');
+    if (!quiet) console.log(c('green', `✓ setdb config -> ${setdbPath}`) + c('dim', '  (add your conf files to "includeInto")'));
+  }
+  const collegePath = path.join(dir, 'college-codes.json');
+  if (!exists(collegePath)) {
+    fs.writeFileSync(collegePath, JSON.stringify(DEFAULT_COLLEGE_CODES, null, 2) + '\n');
+    if (!quiet) console.log(c('green', `✓ college codes -> ${collegePath}`));
+  }
+  return { setdbPath, collegePath };
 }
 
 function linkSkillsForAllAITools() {
