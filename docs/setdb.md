@@ -54,10 +54,9 @@ college code. (Legacy fallback: `~/.config/linways/college-codes.json`.)
    permission note above; the seeded `~/.lwdb/dev/…` default only works for CLI-run PHP),
    and **`includeInto`** to your app's conf-file paths.
 3. Wire the include — run `setdb --init`. It creates the target file and prints the
-   exact line to paste into each config file (the **full path**, since the file lives in
-   `~/.lwdb/`, not next to the conf files):
+   exact full-path line to paste into each config file:
    ```php
-   include "/home/you/.lwdb/dev/active-db.php";
+   include "/var/www/html/linways/.lwdb/active-db.php";
    ```
    **It must be the LAST db-config statement in each file** — otherwise a later
    `$DB_NAME = ...` / `$HOST = ...` in that file overrides the values `active-db.php` set.

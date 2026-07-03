@@ -382,6 +382,40 @@ See `connections.example.json` in the repo root for a working example. The `POST
 
 ---
 
+## Switching the local app DB (`setdb`)
+
+`lwdb setdb` points a **local Linways app** at a chosen server + database by rendering a
+single PHP include, `active-db.php`, from a connection in the store. Include that file
+once in the app's config and switching DB becomes one command. It reuses the same
+connection store as every other command (`registry.getConnection`), so credentials never
+leave lwdb. Interactive on a TTY; JSON + strict exit codes for agents.
+
+```bash
+setdb                            # interactive: pick server → db → college code
+setdb V4-server3378 mydb SJC     # direct
+lwdb --json setdb V4-server3378 mydb SJC   # agent: JSON, no prompts
+lwdb setdb --status              # show the current active target
+lwdb setdb --print V4-server3378 mydb      # render to stdout, don't write
+lwdb setdb --init                # create active-db.php + print the include line to paste
+lwdb setdb --no-verify ...       # skip checking the db exists on the server
+```
+(A `setdb` shim forwarding to `lwdb setdb` is optional: `printf '#!/usr/bin/env sh\nexec lwdb setdb "$@"\n' > ~/.local/bin/setdb && chmod +x ~/.local/bin/setdb`.)
+
+**Config** (auto-seeded by `install`/`update`, never clobbered):
+- `~/.lwdb/setdb.json` — `{ group, output, verify, includeInto }`. Set `output` and
+  `includeInto` to your machine's paths.
+- `~/.lwdb/college-codes.json` — `{ "KEY": "CODE" }` map to auto-fill the college code.
+
+**Critical gotcha — `output` must be readable by the user that runs the app.** A
+web-served Linways app runs as `www-data`, which **cannot** read a developer's home dir
+(`700`). Put `active-db.php` in a project-level `.lwdb/` **inside the web root**
+(`/var/www/html/linways/.lwdb/active-db.php`), never under `~/.lwdb/` — otherwise the
+`include` fails with `Permission denied` and login breaks. Paste the include as the
+**LAST** db-config line in each conf file (a later `$DB_NAME`/`$HOST` assignment would
+override it). Full guide: `docs/setdb.md`.
+
+---
+
 ## Error codes
 
 Stable across the surface. Match on these, not on message text.
