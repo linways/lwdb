@@ -17,7 +17,7 @@ tree is the generated `active-db.php` (the PHP app has to `include` it from ther
 ```json
 {
   "group": "linways",
-  "output": "/home/you/.lwdb/dev/active-db.php",
+  "output": "/var/www/html/linways/.lwdb/active-db.php",
   "verify": true,
   "includeInto": [
     "/path/to/your/app/conf.php",
@@ -27,9 +27,13 @@ tree is the generated `active-db.php` (the PHP app has to `include` it from ther
 }
 ```
 - `group` — which lwdb connection group the picker offers (`lwdb servers`).
-- `output` — absolute path of the `active-db.php` file to write. Keep it **inside
-  `~/.lwdb/`** (e.g. `~/.lwdb/dev/active-db.php`) so nothing setdb-related lives in the
-  app repo. `setdb` creates the directory if needed.
+- `output` — absolute path of the `active-db.php` file to write. **It must be readable by
+  whatever user runs the app.** For a web-served Linways app (Apache/nginx/php-fpm as
+  `www-data`), put it in a project-level **`.lwdb/`** folder inside the web root, e.g.
+  `/var/www/html/linways/.lwdb/active-db.php`. Do **not** use `~/.lwdb/` or any home dir:
+  home dirs are `700`, so the web user can't traverse them and the include fails with
+  `Permission denied`. A `~/.lwdb/dev/…` path only works if you run the PHP purely from
+  the CLI as yourself. `setdb` creates the directory if needed.
 - `verify` — check the db exists on the server before writing.
 - `includeInto` — the config files you must add the include to (used by `setdb --init`).
 
@@ -44,10 +48,11 @@ college code. (Legacy fallback: `~/.config/linways/college-codes.json`.)
 
 1. Have lwdb with your servers: `lwdb servers` (import shared ones with `lwdb import <file.json>`).
 2. `~/.lwdb/setdb.json` + `~/.lwdb/college-codes.json` are **seeded automatically** by
-   `lwdb install`/`lwdb update` (never overwriting an edited config). Just open
-   `~/.lwdb/setdb.json` and fill in **`includeInto`** with your app's conf-file paths
-   (that part is machine-specific). Adjust `output` only if you don't want the default
-   `~/.lwdb/dev/active-db.php`.
+   `lwdb install`/`lwdb update` (never overwriting an edited config). Open
+   `~/.lwdb/setdb.json` and set two machine-specific things: **`output`** to a
+   web-readable project path (e.g. `/var/www/html/linways/.lwdb/active-db.php` — see the
+   permission note above; the seeded `~/.lwdb/dev/…` default only works for CLI-run PHP),
+   and **`includeInto`** to your app's conf-file paths.
 3. Wire the include — run `setdb --init`. It creates the target file and prints the
    exact line to paste into each config file (the **full path**, since the file lives in
    `~/.lwdb/`, not next to the conf files):
@@ -80,5 +85,5 @@ setdb --no-verify ...            # skip checking the db exists on the server
 (`$DB_NAME`/`$AMS_AUTONOMOUS_DB_NAME`, `$COLLEGE_CODE`, and the `$HOST`/`$USER`/`$PASSWD`
 trios). `setdb` renders it from a chosen lwdb connection with proper PHP escaping, so
 passwords containing `$`, `%`, or `'` are safe. `active-db.php` is generated and holds a
-plaintext password — keeping it under `~/.lwdb/` (outside any repo) avoids the leak risk
-entirely; if you point `output` back into a repo, gitignore it.
+plaintext password — gitignore the project `.lwdb/` (or at least `.lwdb/active-db.php`) so
+it never lands in version control.
