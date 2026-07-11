@@ -59,6 +59,19 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
   const servers = (await backend.listServers()).filter((s) => !group || s.group === group);
   const isServer = (id) => { try { return !!registry.getConnection(id); } catch { return false; } };
 
+  // Issue mode: `setdb <issue#>` — pure digits can't be a db name (dbs are like test_lcss64).
+  if (positional[0] && /^\d+$/.test(positional[0]) && !positional[1]) {
+    const { fetchIssueForSetdb } = await import('./setdbIssue.mjs');
+    let resolved;
+    try { resolved = fetchIssueForSetdb(positional[0]); }
+    catch (e) { return die(`issue ${positional[0]}: ${e.message}`); }
+    if (!resolved.dbName) {
+      return die(`issue ${positional[0]} has no "Database and CHT Instance" line (college: ${resolved.college ?? 'unknown'}). Run: lwdb setdb <db> ${resolved.college ?? '<college>'}`);
+    }
+    // Feed the existing search-all-servers flow: db name + college override.
+    positional = [resolved.dbName, ...(resolved.college ? [resolved.college] : [])];
+  }
+
   // Resolve which server + db to set, from the args or interactively.
   let serverId = null;
   let dbName = null;
