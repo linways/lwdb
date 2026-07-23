@@ -56,7 +56,8 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
   }
 
   const group = found.config.group;
-  const servers = (await backend.listServers()).filter((s) => !group || s.group === group);
+  // ponytail: 'local' always searched too — localhost dev dbs live outside the project's server group
+  const servers = (await backend.listServers()).filter((s) => !group || s.group === group || s.group === 'local');
   const isServer = (id) => { try { return !!registry.getConnection(id); } catch { return false; } };
 
   // Issue mode: `setdb <issue#>` — pure digits can't be a db name (dbs are like test_lcss64).
