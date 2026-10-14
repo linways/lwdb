@@ -86,6 +86,14 @@ function printTable(rows, columns) {
   process.stdout.write(`${rows.length} row${rows.length === 1 ? '' : 's'}\n`);
 }
 
+// --rows-only: bare compact rows array — no fields/type metadata, no indent.
+// Truncation still matters to the caller, so it goes to stderr.
+function emitResult(result) {
+  if (!flags['rows-only']) { emit(result); return; }
+  if (result.limited) process.stderr.write(`note: implicit LIMIT ${result.appliedLimit} reached; more rows may exist (raise --limit)\n`);
+  process.stdout.write(JSON.stringify(result.meta ? { rowCount: result.rowCount } : result.rows) + '\n');
+}
+
 function die(msg, code = 1) {
   if (wantJson) process.stdout.write(JSON.stringify({ error: { message: msg } }) + '\n');
   else process.stderr.write(`error: ${msg}\n`);
@@ -126,7 +134,8 @@ async function helpJson() {
       cmd('sample', 'data', 'Return a few real rows (SELECT * LIMIT n).', [a('server', true), a('db', true), a('table', true)], { limit: 'Rows (default 5, max 100).' }),
       cmd('profile', 'data', 'Per-column null%/distinct/min/max/top over a bounded sample.', [a('server', true), a('db', true), a('table', true)], { columns: 'Comma-separated subset.', top: 'Top values (default 5).', sample: 'Sample size (default 10000).', exact: 'Full scan instead of a sample.' }),
       cmd('find-table', 'data', 'Search tables across every db on a server.', [a('server', true), a('pattern', true)]),
-      cmd('query', 'data', 'Run one SQL statement (read-only unless writes unlocked).', [a('server', true), a('db'), a('sql', true)], { yes: 'Confirm a write after the user approves.', limit: 'Row limit for SELECT.', approve: 'Wait for a human to approve this exact write live in the lwdb app (needs a running server).', timeout: 'Seconds to wait for --approve (default 120).' }),
+      cmd('where', 'data', 'Find which server(s) host a db (probes all servers in parallel).', [a('db', true)]),
+      cmd('query', 'data', 'Run one SQL statement (read-only unless writes unlocked).', [a('server', true), a('db'), a('sql', true)], { yes: 'Confirm a write after the user approves.', limit: 'Row limit for SELECT.', 'rows-only': 'Print only the rows as compact JSON (truncation note on stderr).', approve: 'Wait for a human to approve this exact write live in the lwdb app (needs a running server).', timeout: 'Seconds to wait for --approve (default 120).' }),
       cmd('snippets', 'snippets', 'List saved query templates.', [a('pattern')]),
       cmd('save', 'snippets', 'Create a saved query template.', [a('name', true), a('sql', true)], { description: '', tags: 'Comma-separated.', 'default-server': '', 'default-db': '' }),
       cmd('run', 'snippets', 'Run a snippet by name/id, binding :params.', [a('name', true)], { server: '', db: '', writable: 'Confirm a write.', limit: '' }),
@@ -174,6 +183,7 @@ DATA
   sample <server> <db> <table>      # SELECT * LIMIT n (n default 5, --limit=N)
   profile <server> <db> <table>     # per-column nulls/distinct/min/max/top [--columns=a,b] [--exact]
   find-table <server> <pattern>     # search tables across every db on a server
+  where <db>                        # which server(s) host this db (all servers, in parallel)
   query <server> [db] "<sql>"       [--yes] [--limit=N] [--approve] [--timeout=SEC]
                                        # writes need: agent-writes ON + --yes (user-confirmed)
                                        # OR --approve: a human approves THIS exact write live in
@@ -234,6 +244,7 @@ SYSTEM
 
 OUTPUT
   --json        Force JSON (auto when not a TTY).
+  --rows-only   query/run/sample: print just the rows as compact JSON (no fields metadata).
 
 DAEMON
   MySQL commands reuse a running lwdb server (desktop app / lwdb serve) on
@@ -306,7 +317,7 @@ const INSTALLER_COMMANDS = new Set(['install', 'update', 'uninstall', 'update-sk
 // cheaper than the HTTP hop. Lifecycle/store-mutating commands always run locally.
 const DAEMON_COMMANDS = new Set([
   'dbs', 'tables', 'describe', 'schema', 'context', 'sample', 'profile',
-  'find-table', 'query', 'run', 'conn-test',
+  'find-table', 'where', 'query', 'run', 'conn-test',
 ]);
 
 async function pickBackend() {
@@ -421,7 +432,7 @@ async function main() {
       const result = await backend.runQuery({
         server, db, sql: buildSampleSql(db, table, flags.limit), writable: false,
       });
-      if (wantJson) emit(result);
+      if (wantJson) emitResult(result);
       else {
         if (result.rows?.length) printTable(result.rows);
         else process.stdout.write('(no rows)\n');
@@ -468,6 +479,18 @@ async function main() {
       break;
     }
 
+    case 'where': {
+      const [name] = positional;
+      if (!name) die('usage: lwdb where <db>');
+      const { findDbServers } = await import('../server/lib/setdbCommand.mjs');
+      const { hits, unreachable } = await findDbServers(backend, await backend.listServers(), name);
+      const skipped = unreachable.length ? ` (unreachable: ${unreachable.join(', ')})` : '';
+      if (!hits.length) die(`db '${name}' not found on any reachable server${skipped} (code: NOT_FOUND)`);
+      if (wantJson) emit({ db: name, servers: hits, unreachable });
+      else process.stdout.write(`${hits.join('\n')}\n${skipped ? `note:${skipped}\n` : ''}`);
+      break;
+    }
+
     case 'query': {
       const server = positional.shift();
       if (!server) die('usage: lwdb query <server> [db] "<sql>"');
@@ -483,7 +506,7 @@ async function main() {
         if (info && info.allReadOnly) {
           // read-only — no approval needed; just run it.
           const ro = await backend.runQuery({ server, db, sql, writable: false, limit: flags.limit ? parseInt(flags.limit, 10) : undefined });
-          emit(ro);
+          emitResult(ro);
           break;
         }
         const { awaitApproval } = await import('../server/lib/backend.mjs');
@@ -494,7 +517,7 @@ async function main() {
             onPending: (a) => { if (!wantJson) process.stderr.write(`Waiting for a human to approve in the lwdb app (${a.id}):\n  ${sql}\n`); },
           });
         } catch (err) { die(`${err.message} (code: ${err.code || 'DB_ERROR'})`); }
-        if (final.status === 'approved') { emit(final.result); break; }
+        if (final.status === 'approved') { emitResult(final.result); break; }
         if (final.status === 'denied') die('Write denied by the user. (code: CONFIRM_REQUIRED)');
         if (final.status === 'timeout') die('Approval timed out — nobody responded. (code: TIMEOUT)');
         die(`${final.error?.message || 'approval failed'} (code: ${final.error?.code || 'DB_ERROR'})`);
@@ -507,7 +530,7 @@ async function main() {
         writable: await resolveWritable(sql, backend),
         limit: flags.limit ? parseInt(flags.limit, 10) : undefined,
       });
-      if (wantJson) emit(result);
+      if (wantJson) emitResult(result);
       else {
         if (result.rows && result.rows.length) printTable(result.rows);
         else process.stdout.write(`(${result.verb}) affected: ${result.rowCount}\n`);
@@ -569,7 +592,7 @@ async function main() {
         writable: await resolveWritable(snippet.sql, backend),
         limit: flags.limit ? parseInt(flags.limit, 10) : undefined,
       });
-      if (wantJson) emit(result);
+      if (wantJson) emitResult(result);
       else {
         process.stdout.write(`★ ${snippet.name}  →  ${targetServer}.${targetDb || '(no db)'}\n`);
         if (result.rows && result.rows.length) printTable(result.rows);

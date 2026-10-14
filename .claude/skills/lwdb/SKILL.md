@@ -14,7 +14,7 @@ description: Use the lwdb CLI to explore the Linways multi-server MySQL setup, r
 - Is **read-only by default**. `SELECT / SHOW / DESCRIBE / EXPLAIN / WITH / USE` are allowed. Writes (INSERT / UPDATE / DELETE / DDL) need a human-set master switch **plus** a per-call `--yes` confirmation — see "Writes" below. A connection can also be **write-protected** (`lwdb conn-add … --protected`): writes to it are refused with `READONLY_BLOCKED` regardless of the master switch — the human marks prod connections this way, and you cannot override it.
 - Has a typed `error.code` and a non-zero exit code on failure.
 - Will not prompt for missing arguments — missing flags are errors, not hangs.
-- **Reuses a running lwdb server automatically.** MySQL-touching commands (`dbs`, `tables`, `describe`, `schema`, `context`, `sample`, `profile`, `find-table`, `query`, `run`, `conn-test`) detect a healthy server on `127.0.0.1:4321` (the desktop app or `lwdb serve`) and forward through its warm connection pools — same output, same write gate, just faster. No daemon running → the command connects directly; nothing for you to manage. Pass `--no-daemon` (or set `LW_DB_NO_DAEMON=1`) only if you specifically need a direct connection.
+- **Reuses a running lwdb server automatically.** MySQL-touching commands (`dbs`, `tables`, `describe`, `schema`, `context`, `sample`, `profile`, `find-table`, `where`, `query`, `run`, `conn-test`) detect a healthy server on `127.0.0.1:4321` (the desktop app or `lwdb serve`) and forward through its warm connection pools — same output, same write gate, just faster. No daemon running → the command connects directly; nothing for you to manage. Pass `--no-daemon` (or set `LW_DB_NO_DAEMON=1`) only if you specifically need a direct connection.
 
 > **You're reading the CLI skill.** lwdb also ships an MCP server (`lwdb mcp`, stdio) exposing the same surface as tools (`get_context`, `run_query`, `profile_table`, …) for clients that prefer MCP over shelling out. If you can already run `lwdb` in the shell, this CLI skill is the more composable surface — use it. The MCP server exists for agent clients with no shell. Config: `{ "command": "lwdb", "args": ["mcp"] }`.
 
@@ -68,6 +68,11 @@ lwdb servers --json
 # Add --latest to sort lexicographically descending — useful for
 # date-suffixed db names like test_stthomas_db2104, test_stthomas_db2105.
 lwdb dbs V4-server84 stthomas --latest --json
+
+# Which server hosts a db? One call, all servers probed in parallel —
+# don't loop `dbs` over every server yourself.
+lwdb where test_stthomas_db2104 --json   # { db, servers: [...], unreachable: [...] }
+# MCP equivalent: find_db { db }
 
 # Find a table across every db on a server (slow, but pre-narrows for you).
 lwdb find-table V4-server84 students --json
@@ -144,11 +149,12 @@ Notes live in lwdb's SQLite store (local, per-target). Tag agent-authored notes 
 ## Running queries
 
 ```bash
-lwdb query <server> [db] "<sql>" [--limit=N] [--yes] [--json]
+lwdb query <server> [db] "<sql>" [--limit=N] [--yes] [--json] [--rows-only]
 ```
 
 - Implicit `LIMIT 500` is appended to bare SELECTs. Override with `--limit=N`. Hard cap: 5000.
-- The JSON envelope contains `sql` (the executed text, post-limit-injection), `verb`, `elapsedMs`, `rowCount`, `fields` (with type codes), `rows`, and `meta` (DML side-effects).
+- The JSON envelope contains `sql` (the executed text, post-limit-injection), `verb`, `elapsedMs`, `rowCount`, `fields` (with type codes), `rows`, `meta` (DML side-effects), and `limited` (true only when the implicit LIMIT was hit — more rows may exist).
+- `--rows-only` (also on `run`/`sample`): print just the rows as compact JSON — no `fields` metadata. Prefer it for routine reads; a truncation note goes to stderr. MCP: `run_query` with `rows_only: true`.
 
 ```bash
 # Read — always allowed

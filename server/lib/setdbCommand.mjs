@@ -15,6 +15,21 @@ async function writeTarget(path, text) {
 }
 
 // helpers passed from bin: { registry, backend, flags, positional, wantJson, emit, die }
+/**
+ * Which servers host db `name`? Probes all servers in parallel so one slow or
+ * unreachable server costs at most its own connect timeout, not the sum.
+ */
+export async function findDbServers(backend, servers, name) {
+  const results = await Promise.allSettled(servers.map((s) => backend.listDatabases(s.id)));
+  const hits = [];
+  const unreachable = [];
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') unreachable.push(servers[i].id);
+    else if (r.value.includes(name)) hits.push(servers[i].id);
+  });
+  return { hits, unreachable };
+}
+
 export async function runSetdb({ registry, backend, flags, positional, wantJson, emit, die }) {
   const found = await findSetdbConfig(process.cwd());
   if (!found) return die('no setdb config found — create ~/.lwdb/setdb.json (or a repo .setdb.json)');
@@ -88,11 +103,7 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
     // which server hosts it. setdb <db> [college].
     dbName = a0; collegeArg = collegeArg || positional[1] || null;
     if (!wantJson) process.stdout.write(`Searching for '${dbName}' across ${servers.length} ${group || ''} server(s)…\n`);
-    const hits = [];
-    for (const s of servers) {
-      try { if ((await backend.listDatabases(s.id)).includes(dbName)) hits.push(s.id); }
-      catch { /* unreachable server — skip */ }
-    }
+    const { hits } = await findDbServers(backend, servers, dbName);
     if (!hits.length) return die(`db '${dbName}' not found on any reachable ${group || ''} server`);
     foundBySearch = true;
     if (hits.length === 1) { serverId = hits[0]; if (!wantJson) process.stdout.write(`Found on ${serverId}.\n`); }

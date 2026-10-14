@@ -258,6 +258,7 @@ It exposes `list_servers`, `list_databases`, `list_tables`, `describe_table`, `g
 ### The contract
 
 - Every command auto-emits JSON when `stdout` isn't a TTY (force with `--json`).
+- `query`/`run`/`sample --rows-only` print just the rows as compact JSON (no `fields` metadata).
 - Errors include a stable `error.code` string (e.g. `READONLY_BLOCKED`, `AGENT_WRITES_DISABLED`, `CONFIRM_REQUIRED`, `MISSING_PARAM`, `UNKNOWN_SERVER`, `TIMEOUT`, `BAD_BACKUP`) — branch on these, not on message text.
 - Read-only by default. Writes need **both** a human-set master switch (`lwdb agent-writes on`, or Settings → AI Agents) **and** a per-call `--yes` — the agent adds `--yes` only after the actual user confirms. `AGENT_WRITES_DISABLED` if the switch is off; `CONFIRM_REQUIRED` if `--yes` is missing.
 - Connections are managed via `lwdb conn-add` / `lwdb import` (universal JSON, see `connections.example.json`) and stored in lwdb's own SQLite connection store, **AES-256-GCM encrypted at rest** (key at `~/.lwdb/key`, separate from the DB). **The agent never sees credentials.**
@@ -278,6 +279,7 @@ Run `lwdb help` for the full surface. A summary of the groups:
 | `lwdb export [file.json]` | dump all connections (includes passwords — local backup) |
 | `lwdb dbs <server> [pattern]` | list databases · `--latest` sorts descending |
 | `lwdb find-table <server> <pattern>` | search tables across every db on a server |
+| `lwdb where <db>` | which server(s) host a db (all servers probed in parallel) |
 | `lwdb tables <server> <db> [pattern]` | tables in one db |
 | `lwdb describe <server> <db> <table>` | columns + indexes for one table |
 | `lwdb schema <server> <db>` | bulk table → columns map with primary keys (for codegen / agents) |
