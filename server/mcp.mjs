@@ -64,6 +64,16 @@ export function buildLwdbTools(backend) {
       handler: ({ server }) => backend.listDatabases(server).then((databases) => ({ databases })),
     },
     {
+      name: 'find_db',
+      description: 'Find which server(s) host a database, probing every server in parallel. Use this instead of calling list_databases on each server. Returns { db, servers, unreachable }; empty servers = not found on any reachable server.',
+      inputSchema: S({ db: str('Exact database name') }, ['db']),
+      handler: async ({ db }) => {
+        const { findDbServers } = await import('./lib/setdbCommand.mjs');
+        const { hits, unreachable } = await findDbServers(backend, await backend.listServers(), db);
+        return { db, servers: hits, unreachable };
+      },
+    },
+    {
       name: 'list_tables',
       description: 'List tables in a database, with approximate row counts.',
       inputSchema: S({ server: str('Server id'), db: str('Database name') }, ['server', 'db']),
@@ -115,8 +125,9 @@ export function buildLwdbTools(backend) {
         limit: int('Row limit for SELECT (default 500, max 5000)'),
         writable: { type: 'boolean', description: 'Confirm a write (with the global agent-writes switch on)' },
         await_approval: { type: 'boolean', description: 'Wait for a human to approve this exact write in the lwdb app (per-write consent; alternative to the global switch)' },
+        rows_only: { type: 'boolean', description: 'Return only { rows, limited } — drops fields/type metadata to save tokens' },
       }, ['server', 'sql']),
-      handler: async ({ server, db, sql, limit, writable, await_approval }) => {
+      handler: async ({ server, db, sql, limit, writable, await_approval, rows_only }) => {
         if (await_approval) {
           let info;
           try { info = inspectSql(sql); } catch { info = null; }
@@ -129,7 +140,8 @@ export function buildLwdbTools(backend) {
             throw appError(final.error?.code || Codes.DB_ERROR, final.error?.message || 'Approval failed');
           }
         }
-        return backend.runQuery({ server, db: db || null, sql, limit, writable: await resolveWritable(sql, writable, backend) });
+        const result = await backend.runQuery({ server, db: db || null, sql, limit, writable: await resolveWritable(sql, writable, backend) });
+        return rows_only && !result.meta ? { rows: result.rows, limited: result.limited } : result;
       },
     },
     {

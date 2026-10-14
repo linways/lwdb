@@ -2,6 +2,19 @@
 
 All notable changes to **lwdb** are documented here. This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-10-14
+
+### Added
+
+- **`setdb <issue#>`** — resolves the db and college for a Redmine issue (via `lwr`) and points the local app at it.
+- **`lwdb where <db>`** — find which server(s) host a db in one call. Probes every server in parallel, so one unreachable server no longer stalls the search (`setdb <db>` uses the same search; MCP: `find_db`).
+- **`--rows-only`** on `query`/`run`/`sample` (and `rows_only` on the MCP `run_query` tool) — returns just the rows as compact JSON, dropping per-query `fields` type metadata.
+
+### Fixed
+
+- **`setdb <db>` now searches local-group servers too**, and college-code lookup falls back to the longest substring match.
+- **`limited` was true whenever an implicit LIMIT was appended**, even when fewer rows came back. It now means the limit was actually reached.
+
 ## [0.1.2] — 2026-06-08
 
 ### Added

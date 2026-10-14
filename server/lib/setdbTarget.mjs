@@ -39,5 +39,10 @@ export function resolveCollegeCode({ override, dbName, map }) {
   if (override) return String(override).toUpperCase();
   const key = String(dbName || '').toUpperCase();
   if (map && map[key]) return map[key];
+  // ponytail: substring fallback — longest matching key wins, so SJCC beats SJC on test_sjccv4
+  if (map) {
+    const hit = Object.keys(map).filter(k => key.includes(k)).sort((a, b) => b.length - a.length)[0];
+    if (hit) return map[hit];
+  }
   return null;
 }

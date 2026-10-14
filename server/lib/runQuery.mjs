@@ -100,7 +100,8 @@ export async function runQuery({
     fields: isResultSet && fields ? fields.map((f) => ({ name: f.name, type: f.type })) : [],
     rows: isResultSet ? rows : [],
     meta: isResultSet ? null : rows,
-    limited: isResultSet && /\bLIMIT\b/i.test(finalSql) && !/\blimit\b/i.test(originalStmt),
+    // True only when OUR implicit LIMIT was hit, i.e. there may be more rows.
+    limited: isResultSet && finalSql !== originalStmt && rows.length >= effectiveLimit,
     appliedLimit: effectiveLimit,
   };
 }

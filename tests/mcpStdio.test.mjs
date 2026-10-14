@@ -88,7 +88,7 @@ test('MCP handshake: initialize advertises tools, then tools/list returns the lw
 
     const list = await mcp.request('tools/list', {});
     const names = list.result.tools.map((t) => t.name);
-    for (const expected of ['list_servers', 'get_context', 'run_query', 'profile_table', 'run_snippet']) {
+    for (const expected of ['list_servers', 'find_db', 'get_context', 'run_query', 'profile_table', 'run_snippet']) {
       assert.ok(names.includes(expected), `tools/list missing ${expected}`);
     }
   });

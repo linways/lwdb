@@ -15,6 +15,21 @@ async function writeTarget(path, text) {
 }
 
 // helpers passed from bin: { registry, backend, flags, positional, wantJson, emit, die }
+/**
+ * Which servers host db `name`? Probes all servers in parallel so one slow or
+ * unreachable server costs at most its own connect timeout, not the sum.
+ */
+export async function findDbServers(backend, servers, name) {
+  const results = await Promise.allSettled(servers.map((s) => backend.listDatabases(s.id)));
+  const hits = [];
+  const unreachable = [];
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') unreachable.push(servers[i].id);
+    else if (r.value.includes(name)) hits.push(servers[i].id);
+  });
+  return { hits, unreachable };
+}
+
 export async function runSetdb({ registry, backend, flags, positional, wantJson, emit, die }) {
   const found = await findSetdbConfig(process.cwd());
   if (!found) return die('no setdb config found — create ~/.lwdb/setdb.json (or a repo .setdb.json)');
@@ -56,8 +71,22 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
   }
 
   const group = found.config.group;
-  const servers = (await backend.listServers()).filter((s) => !group || s.group === group);
+  // ponytail: 'local' always searched too — localhost dev dbs live outside the project's server group
+  const servers = (await backend.listServers()).filter((s) => !group || s.group === group || s.group === 'local');
   const isServer = (id) => { try { return !!registry.getConnection(id); } catch { return false; } };
+
+  // Issue mode: `setdb <issue#>` — pure digits can't be a db name (dbs are like test_lcss64).
+  if (positional[0] && /^\d+$/.test(positional[0]) && !positional[1]) {
+    const { fetchIssueForSetdb } = await import('./setdbIssue.mjs');
+    let resolved;
+    try { resolved = fetchIssueForSetdb(positional[0]); }
+    catch (e) { return die(`issue ${positional[0]}: ${e.message}`); }
+    if (!resolved.dbName) {
+      return die(`issue ${positional[0]} has no "Database and CHT Instance" line (college: ${resolved.college ?? 'unknown'}). Run: lwdb setdb <db> ${resolved.college ?? '<college>'}`);
+    }
+    // Feed the existing search-all-servers flow: db name + college override.
+    positional = [resolved.dbName, ...(resolved.college ? [resolved.college] : [])];
+  }
 
   // Resolve which server + db to set, from the args or interactively.
   let serverId = null;
@@ -74,11 +103,7 @@ export async function runSetdb({ registry, backend, flags, positional, wantJson,
     // which server hosts it. setdb <db> [college].
     dbName = a0; collegeArg = collegeArg || positional[1] || null;
     if (!wantJson) process.stdout.write(`Searching for '${dbName}' across ${servers.length} ${group || ''} server(s)…\n`);
-    const hits = [];
-    for (const s of servers) {
-      try { if ((await backend.listDatabases(s.id)).includes(dbName)) hits.push(s.id); }
-      catch { /* unreachable server — skip */ }
-    }
+    const { hits } = await findDbServers(backend, servers, dbName);
     if (!hits.length) return die(`db '${dbName}' not found on any reachable ${group || ''} server`);
     foundBySearch = true;
     if (hits.length === 1) { serverId = hits[0]; if (!wantJson) process.stdout.write(`Found on ${serverId}.\n`); }
