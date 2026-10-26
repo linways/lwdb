@@ -58,6 +58,15 @@ async function copyCurrentDb() {
       />
     </button>
     <button
+      v-if="store.connectError && store.connectError.server === store.currentServer && !store.loadingDbs"
+      class="chip error"
+      :title="`Reconnect to ${store.currentServer} — ${store.connectError.message}`"
+      @click="actions.retryServer()"
+    >
+      <span class="label">⚠</span>
+      <span class="val">retry</span>
+    </button>
+    <button
       v-if="store.currentDb"
       class="chip copy-chip"
       :title="`Copy database name: ${store.currentDb}`"

@@ -99,6 +99,7 @@ export const store = reactive({
   loadingDbs: false,
   loadingTables: false,
   loadingSchema: false,
+  connectError: null,       // { server, message } when the db list couldn't load — drives the Retry chip
   toast: null,
   connectionsOpen: false,
   prefs: { ...initialPrefs },
@@ -205,21 +206,39 @@ export const actions = {
     store.currentDb = null;
     store.databases = [];
     store.tables = [];
+    store.connectError = null;
     localStorage.setItem('lwdb:lastServer', id);
     store.recentDbs[id] = readRecentDbs(id);
     if (!id) return;
     store.loadingDbs = true;
     try {
-      const { databases } = await api.databases(id);
+      // One silent retry: the server drops a bad connection pool on the first
+      // failure and rebuilds it on the next request, so a transient blip (idle
+      // drop, tunnel reconnect) clears on attempt 2. Listing dbs is idempotent.
+      let databases;
+      try {
+        ({ databases } = await api.databases(id));
+      } catch (_) {
+        await new Promise((r) => setTimeout(r, 600));
+        ({ databases } = await api.databases(id));
+      }
+      if (store.currentServer !== id) return; // user switched away mid-fetch
       store.databases = databases;
       const saved = localStorage.getItem(`lwdb:lastDb:${id}`);
       const initial = databases.includes(saved) ? saved : databases[0];
       if (initial) await this.selectDatabase(initial);
     } catch (err) {
+      if (store.currentServer !== id) return;
+      store.connectError = { server: id, message: err.message };
       toast(`Cannot connect to ${id}: ${err.message}`, 'error');
     } finally {
-      store.loadingDbs = false;
+      if (store.currentServer === id) store.loadingDbs = false;
     }
+  },
+
+  /** Re-attempt the current server after a connect failure (the Retry chip). */
+  retryServer() {
+    if (store.currentServer) return this.selectServer(store.currentServer);
   },
 
   async selectDatabase(db) {

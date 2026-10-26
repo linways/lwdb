@@ -130,6 +130,8 @@ button { cursor: pointer; }
 .chip.disabled { opacity: 0.5; pointer-events: none; }
 .chip.loading { border-color: var(--accent-dim); color: var(--accent); }
 .chip.stale { color: var(--text-dim); }
+.chip.error { color: var(--danger); border-color: rgba(255,107,107,0.4); background: rgba(255,107,107,0.08); }
+.chip.error:hover { background: rgba(255,107,107,0.16); color: var(--danger); }
 .cache-dot {
   display: inline-block;
   width: 5px; height: 5px;

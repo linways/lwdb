@@ -56,7 +56,9 @@ export async function runQuery({
   for (;;) {
     attempts++;
     try {
-      [rows, fields] = await poolQuery(pool, finalSql, args);
+      // retry:false — runQuery's own loop below is the single retry authority,
+      // and it must never auto-retry writes (duplicate side-effects).
+      [rows, fields] = await poolQuery(pool, finalSql, args, { retry: false });
       dbError = null;
       break;
     } catch (err) {
