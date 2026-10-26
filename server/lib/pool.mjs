@@ -7,6 +7,7 @@
  */
 import { appError, Codes } from './errors.mjs';
 import { child } from './log.mjs';
+import { isTransientError } from './connectionHealth.mjs';
 
 // mysql2 is the one heavy dependency in the CLI's import chain (~200ms).
 // Load it only when a MySQL connection is actually created so commands that
@@ -169,19 +170,28 @@ export async function getPool(connection, db) {
  * if it hangs, but the client unblocks. mysql2 pool will recycle the
  * connection on next use.
  */
-export async function poolQuery(pool, sql, args = [], { timeoutMs } = {}) {
+export async function poolQuery(pool, sql, args = [], { timeoutMs, retry = true } = {}) {
   const effective = timeoutMs ?? activeConfig.queryTimeoutMs;
-  let timer;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => {
-      reject(appError(Codes.TIMEOUT, `Query timed out after ${effective}ms`));
-    }, effective);
-    timer.unref?.();
-  });
+  const once = () => {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(appError(Codes.TIMEOUT, `Query timed out after ${effective}ms`));
+      }, effective);
+      timer.unref?.();
+    });
+    return Promise.race([pool.query(sql, args), timeout]).finally(() => clearTimeout(timer));
+  };
   try {
-    return await Promise.race([pool.query(sql, args), timeout]);
-  } finally {
-    clearTimeout(timer);
+    return await once();
+  } catch (err) {
+    // One retry on a transient connection error (dead pooled connection from an
+    // idle drop or tunnel blip, or a channel-open hiccup). mysql2 evicts the broken
+    // connection on the error, so the retry gets a fresh one. `retry: false` (writes)
+    // opts out to avoid duplicate side-effects.
+    // ponytail: same policy runQuery already applies — see runQuery.mjs retry.
+    if (retry && isTransientError(err)) return await once();
+    throw err;
   }
 }
 
