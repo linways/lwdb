@@ -109,3 +109,41 @@ test('inspectSql does not split on a ; inside a backtick identifier', () => {
   assert.equal(info.stmts.length, 1);
   assert.equal(info.stmts[0], sql);
 });
+
+// MySQL executes the body of /*! ... */ and /*!NNNNN ... */, so the comment
+// stripper must not hide it. Any executable comment counts as a write.
+test('executable comments are treated as writes', () => {
+  for (const sql of [
+    'SELECT 1 /*! ; DROP TABLE x */',
+    'SELECT 1 /*!50000 ; DROP TABLE x */',
+    'SELECT /*! STRAIGHT_JOIN */ * FROM t',
+    '/*! DROP TABLE x */',
+    'SELECT 1 /*M! ; DROP TABLE x */',
+    'SELECT 1 /*m!100000 ; DROP TABLE x */',
+  ]) {
+    assert.equal(inspectSql(sql).allReadOnly, false, sql);
+    assert.throws(() => assertReadOnly(sql), { code: 'READONLY_BLOCKED' }, sql);
+  }
+});
+
+test('executable-comment marker inside a string is not flagged', () => {
+  assert.equal(inspectSql("SELECT '/*! x */' AS s").allReadOnly, true);
+});
+
+test('SELECT ... INTO OUTFILE / DUMPFILE is blocked', () => {
+  assert.throws(() => assertReadOnly("SELECT * FROM t INTO OUTFILE '/tmp/x'"), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly("SELECT a INTO DUMPFILE '/tmp/x' FROM t"), { code: 'READONLY_BLOCKED' });
+});
+
+test('locking reads are blocked', () => {
+  assert.throws(() => assertReadOnly('SELECT * FROM t WHERE id = 1 FOR UPDATE'), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly('SELECT * FROM t FOR SHARE'), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly('SELECT * FROM t LOCK IN SHARE MODE'), { code: 'READONLY_BLOCKED' });
+});
+
+test('replace() function call is read-only; REPLACE statement is blocked', () => {
+  assert.equal(inspectSql("SELECT replace(a,'x','y') FROM t").allReadOnly, true);
+  assert.equal(inspectSql("SELECT REPLACE (a, 'x', 'y') FROM t").allReadOnly, true);
+  assert.throws(() => assertReadOnly('REPLACE INTO t VALUES (1)'), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly('REPLACE t (a) VALUES (1)'), { code: 'READONLY_BLOCKED' });
+});
