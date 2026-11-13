@@ -14,13 +14,24 @@ const READ_ONLY_VERBS = new Set([
 ]);
 
 const WRITE_VERBS = [
-  'INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'MERGE',
+  'INSERT', 'UPDATE', 'DELETE', 'MERGE',
   'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME',
   'GRANT', 'REVOKE',
   'CALL', 'LOAD', 'HANDLER', 'LOCK', 'UNLOCK',
   'SET',
 ];
-const WRITE_VERB_RE = new RegExp(`\\b(${WRITE_VERBS.join('|')})\\b`, 'i');
+const WRITE_VERB_RE = new RegExp(
+  `\\b(${WRITE_VERBS.join('|')})\\b` +
+  // REPLACE statement, but not the replace(...) string function
+  '|\\bREPLACE\\b(?!\\s*\\()' +
+  // writes files on the DB server
+  '|\\bINTO\\s+(OUTFILE|DUMPFILE)\\b' +
+  // locking reads (LOCK IN SHARE MODE is caught by LOCK above)
+  '|\\bFOR\\s+(UPDATE|SHARE)\\b' +
+  // executable comment; stripForAnalysis normalises /*M! to this marker
+  '|\\/\\*!',
+  'i',
+);
 
 /**
  * Strip strings, quoted identifiers, and comments from a SQL fragment.
@@ -36,10 +47,15 @@ function stripForAnalysis(sql) {
 
     if (c === '-' && c2 === '-') { while (i < n && sql[i] !== '\n') i++; continue; }
     if (c === '#') { while (i < n && sql[i] !== '\n') i++; continue; }
+    // MySQL /*! */ and MariaDB /*M! */ bodies are executed: keep a marker
+    if (c === '/' && c2 === '*' && (sql[i + 2] === '!' || (/m/i.test(sql[i + 2]) && sql[i + 3] === '!'))) {
+      out += '/*!'; i += sql[i + 2] === '!' ? 3 : 4; continue;
+    }
     if (c === '/' && c2 === '*') {
       i += 2;
       while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
       i += 2; // skip closing */
+      out += ' '; // MySQL treats a comment as whitespace: keep INTO/**/OUTFILE split
       continue;
     }
     if (c === "'" || c === '"' || c === '`') {
