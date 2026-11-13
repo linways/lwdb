@@ -147,3 +147,14 @@ test('replace() function call is read-only; REPLACE statement is blocked', () =>
   assert.throws(() => assertReadOnly('REPLACE INTO t VALUES (1)'), { code: 'READONLY_BLOCKED' });
   assert.throws(() => assertReadOnly('REPLACE t (a) VALUES (1)'), { code: 'READONLY_BLOCKED' });
 });
+
+// MySQL tokenises a block comment as whitespace, so INTO/**/OUTFILE is INTO OUTFILE.
+test('block comments between keywords do not bypass guard', () => {
+  for (const sql of [
+    "SELECT * FROM t INTO/**/OUTFILE '/tmp/x'",
+    'SELECT * FROM t FOR/**/UPDATE',
+    'SELECT * FROM t FOR/* x */SHARE',
+  ]) {
+    assert.throws(() => assertReadOnly(sql), { code: 'READONLY_BLOCKED' }, sql);
+  }
+});

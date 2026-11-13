@@ -55,6 +55,7 @@ function stripForAnalysis(sql) {
       i += 2;
       while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) i++;
       i += 2; // skip closing */
+      out += ' '; // MySQL treats a comment as whitespace: keep INTO/**/OUTFILE split
       continue;
     }
     if (c === "'" || c === '"' || c === '`') {
