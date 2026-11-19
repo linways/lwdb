@@ -14,7 +14,7 @@ const READ_ONLY_VERBS = new Set([
 ]);
 
 const WRITE_VERBS = [
-  'INSERT', 'UPDATE', 'DELETE', 'MERGE',
+  'UPDATE', 'DELETE', 'MERGE',
   'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME',
   'GRANT', 'REVOKE',
   'CALL', 'LOAD', 'HANDLER', 'LOCK', 'UNLOCK',
@@ -22,8 +22,8 @@ const WRITE_VERBS = [
 ];
 const WRITE_VERB_RE = new RegExp(
   `\\b(${WRITE_VERBS.join('|')})\\b` +
-  // REPLACE statement, but not the replace(...) string function
-  '|\\bREPLACE\\b(?!\\s*\\()' +
+  // INSERT/REPLACE statements, but not the insert(...)/replace(...) string functions
+  '|\\b(INSERT|REPLACE)\\b(?!\\s*\\()' +
   // writes files on the DB server
   '|\\bINTO\\s+(OUTFILE|DUMPFILE)\\b' +
   // locking reads (LOCK IN SHARE MODE is caught by LOCK above)

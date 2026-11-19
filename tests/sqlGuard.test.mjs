@@ -158,3 +158,11 @@ test('block comments between keywords do not bypass guard', () => {
     assert.throws(() => assertReadOnly(sql), { code: 'READONLY_BLOCKED' }, sql);
   }
 });
+
+test('insert() function call is read-only; INSERT statement is blocked', () => {
+  assert.equal(inspectSql("SELECT insert('abcdef', 2, 3, 'X') AS s").allReadOnly, true);
+  assert.equal(inspectSql("SELECT INSERT (a, 1, 1, 'Z') FROM t").allReadOnly, true);
+  assert.throws(() => assertReadOnly('INSERT INTO t VALUES (1)'), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly('INSERT t (a) VALUES (1)'), { code: 'READONLY_BLOCKED' });
+  assert.throws(() => assertReadOnly('WITH c AS (INSERT INTO x VALUES (1)) SELECT * FROM c'), { code: 'READONLY_BLOCKED' });
+});
